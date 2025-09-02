@@ -1,0 +1,66 @@
+﻿using HeatHarmony.Config;
+using HeatHarmony.Models;
+using static HeatHarmony.Config.GlobalConfig;
+
+namespace HeatHarmony.Providers
+{
+    public sealed class TRVProvider
+    {
+        private readonly string _serviceName;
+        private readonly ILogger<TRVProvider> _logger;
+        private readonly IRequestProvider _requestProvider;
+        public Task TRVTask { get; private set; }
+
+        private readonly List<ShellyTRV> _devices = [];
+
+        public TRVProvider(ILogger<TRVProvider> logger, IRequestProvider requestProvider)
+        {
+            _serviceName = nameof(TRVProvider);
+            _logger = logger;
+            _requestProvider = requestProvider;
+            _devices = ShellyTRVConfig ?? throw new Exception("No TRV devices in config!");
+            TRVTask = UpdateDeviceStatus();
+        }
+
+        public async Task UpdateDeviceStatus()
+        {
+            while (true)
+            {
+                foreach (var device in _devices)
+                {
+                    var url = $"http://{device.IP}/status";
+                    try
+                    {
+                        var result = await _requestProvider.GetAsync<TRVStatusResponse>(HttpClientConst.ShellyClient, url)
+                            ?? throw new Exception($"{_serviceName}:: InitDevices returned null for {device.Name}");
+                        device.UpdatedAt = DateTime.Now;
+                        device.BatteryLevel = result.bat.value;
+                        device.Status = TRVStatusEnum.Ok;
+                        device.LatestLevel = result.thermostats.First().pos;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogCritical(ex, $"{_serviceName}:: UpdateDeviceStatus failed for {device.Name} at {url}");
+                    }
+                    device.UpdatedAt = DateTime.Now;
+                    device.Status = TRVStatusEnum.Error;
+                }
+                await Task.Delay(TimeSpan.FromMinutes(60));
+            }
+        }
+
+        public async Task SetHeating(int level)
+        {
+            foreach (var trv in _devices)
+            {
+                var url = $"http://{trv.IP}/thermostat/0?pos={level}";
+                var result = await _requestProvider.GetAsync<TRVThermoResponse>(HttpClientConst.ShellyClient, url) 
+                    ?? throw new Exception($"{_serviceName}:: SetHeating returned null for {trv.Name}");
+                trv.LatestLevel = result.pos;
+                trv.UpdatedAt = DateTime.Now;
+                trv.Status = TRVStatusEnum.Ok;
+                _logger.LogInformation($"{_serviceName}:: SetHeating to {level} for {trv.Name} succeeded");
+            }
+        }
+    }
+}

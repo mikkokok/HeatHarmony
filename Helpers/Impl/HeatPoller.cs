@@ -4,6 +4,8 @@ namespace HeatHarmony.Helpers.Impl
 {
     public class HeatPoller : IHeatPoller
     {
+        private readonly ILogger<HeatPoller> _logger;
+        private readonly string _serviceName = nameof(HeatPoller);
         private readonly IConfiguration _configuration;
         private readonly OumanConsumer _oumanConsumer;
         private readonly HeishaConsumer _heishaConsumer;
@@ -12,8 +14,9 @@ namespace HeatHarmony.Helpers.Impl
         private PollingStatus _heishaMonPollingStatus;
         private PollingStatus _oumanPollingStatus;
         public List<AirWaterHeatPumpUpdate> Updates { get; private set; } = [];
-        public HeatPoller(IConfiguration configuration)
+        public HeatPoller(IConfiguration configuration, ILogger<HeatPoller> logger)
         {
+            _logger = logger;
             _configuration = configuration;
             _oumanConsumer = new OumanConsumer(_configuration);
             _heishaConsumer = new HeishaConsumer(_configuration);
@@ -35,11 +38,12 @@ namespace HeatHarmony.Helpers.Impl
                 Time = DateTime.Now,
                 Poller = Poller.HeishaMon.ToString()
             };
+            _logger.LogInformation($"{_serviceName}:: ctor finished");
         }
 
         private async Task UpdateOumanReadings()
         {
-            _oumanConsumer.UpdateLatestReading().Wait();
+            _logger.LogInformation($"{_serviceName}:: start reading Ouman");
             while (_isVILPControlRunning)
             {
                 try
@@ -142,7 +146,7 @@ namespace HeatHarmony.Helpers.Impl
         {
             while (true)
             {
-                if (DateTime.Now.Day % 2 == 0 && DateTime.Now.Hour == 21)
+                if (DateTime.Now.Day == 31 && DateTime.Now.Hour == 21)
                 {
                     Updates.Clear();
                 }

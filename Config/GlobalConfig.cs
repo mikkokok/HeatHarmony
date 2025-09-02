@@ -1,0 +1,31 @@
+﻿using HeatHarmony.Models;
+
+namespace HeatHarmony.Config
+{
+    public static class GlobalConfig
+    {
+        public static string? ApiKey { get; set; }
+        public static string? HeishaUrl { get; set; }
+        public static string? PricesUrl { get; set; }
+        public static List<ShellyTRV>? ShellyTRVConfig { get; set; }
+        public static Ouman? OumanConfig { get; set; }
+
+        public class ShellyTRV
+        {
+            public required string Name { get; set; }
+            public required string IP { get; set; }
+            public required DateTime UpdatedAt { get; set; }
+            public required TRVStatusEnum Status { get; set; }
+
+            public string? Message { get; set; }
+            public required int BatteryLevel { get; set; }
+            public required double LatestLevel { get; set; }
+        }
+        public class Ouman
+        {
+            public required string Url { get; set; }
+            public required string Username { get; set; }
+            public required string Password { get; set; }
+        }
+    }
+}
