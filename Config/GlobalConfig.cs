@@ -20,6 +20,7 @@ namespace HeatHarmony.Config
             public string? Message { get; set; }
             public required int BatteryLevel { get; set; }
             public required double LatestLevel { get; set; }
+            public required bool AutoTemperature { get; set; }
         }
         public class Ouman
         {

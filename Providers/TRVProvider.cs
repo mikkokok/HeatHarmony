@@ -1,5 +1,7 @@
 ﻿using HeatHarmony.Config;
 using HeatHarmony.Models;
+using System;
+using System.Reflection.Emit;
 using static HeatHarmony.Config.GlobalConfig;
 
 namespace HeatHarmony.Providers
@@ -37,6 +39,7 @@ namespace HeatHarmony.Providers
                         device.BatteryLevel = result.bat.value;
                         device.Status = TRVStatusEnum.Ok;
                         device.LatestLevel = result.thermostats.First().pos;
+                        device.AutoTemperature = result.thermostats.First().target_t.enabled;
                     }
                     catch (Exception ex)
                     {
@@ -54,12 +57,39 @@ namespace HeatHarmony.Providers
             foreach (var trv in _devices)
             {
                 var url = $"http://{trv.IP}/thermostat/0?pos={level}";
-                var result = await _requestProvider.GetAsync<TRVThermoResponse>(HttpClientConst.ShellyClient, url) 
+                var result = await _requestProvider.GetAsync<TRVThermoResponse>(HttpClientConst.ShellyClient, url)
                     ?? throw new Exception($"{_serviceName}:: SetHeating returned null for {trv.Name}");
                 trv.LatestLevel = result.pos;
                 trv.UpdatedAt = DateTime.Now;
                 trv.Status = TRVStatusEnum.Ok;
                 _logger.LogInformation($"{_serviceName}:: SetHeating to {level} for {trv.Name} succeeded");
+            }
+        }
+
+        public async Task SetAutoTemp(bool enable)
+        {
+            foreach (var trv in _devices)
+            {
+                try
+                {
+                    string? url;
+                    if (enable)
+                    {
+                        url = $"http://{trv.IP}/thermostat/settings/thermostat/0/?target_t_enabled=1";
+                    }
+                    else
+                    {
+                        url = $"http://{trv.IP}/thermostat/settings/thermostat/0/?target_t_enabled=0";
+                    }
+                    var result = await _requestProvider.GetAsync<TRVTempControlResponse>(HttpClientConst.ShellyClient, url)
+                        ?? throw new Exception($"{_serviceName}:: SetAutoTemp returned null for {trv.Name}");
+                    trv.AutoTemperature = result.target_t.enabled;
+
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogCritical(ex, $"{_serviceName}:: SetAutoTemp failed for {trv.Name}");
+                }
             }
         }
     }

@@ -11,6 +11,7 @@ namespace HeatHarmony.Providers
         public double LatestFlowTemp { get; private set; }
         public double LatestInsideTemp { get; private set; }
         public double LatestMinFlowTemp { get; private set; }
+        public bool AutoDrive { get; private set; } = true;
         public Task OumanTask { get; private set; }
 
         public OumanProvider(ILogger<OumanProvider> logger, IRequestProvider requestProvider)
@@ -25,7 +26,7 @@ namespace HeatHarmony.Providers
         {
             while (true)
             {
-                var url = GlobalConfig.OumanUrl + "request?S_275_85;S_227_85;S_54_85;S_81_85";
+                var url = GlobalConfig.OumanConfig!.Url + "request?S_275_85;S_227_85;S_54_85;S_81_85";
                 var result = await _requestProvider.GetAsync<string>(HttpClientConst.OumanClient, url);
                 if (result != null)
                 {
@@ -40,13 +41,13 @@ namespace HeatHarmony.Providers
             }
         }
         public async Task Login() {
-            var url = GlobalConfig.OumanUrl + "login?uid=" + GlobalConfig.OumanConfig?.Username + ";pwd=" + GlobalConfig.OumanConfig?.Password;
+            var url = GlobalConfig.OumanConfig!.Url + "login?uid=" + GlobalConfig.OumanConfig?.Username + ";pwd=" + GlobalConfig.OumanConfig?.Password;
             await _requestProvider.GetAsync<string>(HttpClientConst.OumanClient, url);
         }
 
         public async Task SetMinFlowTemp(int newTemp)
         {
-            var url = GlobalConfig.OumanUrl + "update?@_S_54_85=" + newTemp + ";";
+            var url = GlobalConfig.OumanConfig!.Url + "update?@_S_54_85=" + newTemp + ";";
             var result = await _requestProvider.GetAsync<string>(HttpClientConst.OumanClient, url);
             if (result != null) {
                 var reading = result.Split("?")[1].Split("=")[1];
@@ -56,7 +57,7 @@ namespace HeatHarmony.Providers
 
         public async Task SetInsideTemp(int newTemp)
         {
-            var url = GlobalConfig.OumanUrl + "update?@_S_81_85=" + newTemp + ";";
+            var url = GlobalConfig.OumanConfig!.Url + "update?@_S_81_85=" + newTemp + ";";
             var result = await _requestProvider.GetAsync<string>(HttpClientConst.OumanClient, url);
             if (result != null)
             {
@@ -64,6 +65,32 @@ namespace HeatHarmony.Providers
                 LatestInsideTemp = double.Parse(reading);
             }
         }
+
+        public async Task SetMaximumFlow()
+        {
+            var url = GlobalConfig.OumanConfig!.Url + "update?S_59_85=6;S_92_85=100;";
+            var result = await _requestProvider.GetAsync<string>(HttpClientConst.OumanClient, url);
+            if (result != null)
+            {
+                var reading = result.Split("?")[1].Split("=")[1];
+                var max = double.Parse(reading);
+                if (max == 100)
+                {
+                    AutoDrive = false;
+                }
+            }
+        }
+
+        public async Task SetAutoDriveOn()
+        {
+            var url = GlobalConfig.OumanConfig!.Url + "update?S_59_85=0;";
+            var result = await _requestProvider.GetAsync<string>(HttpClientConst.OumanClient, url);
+            if (result != null)
+            {
+                AutoDrive = true;
+            }
+        }
+
         private void SetLatest(string kvPair)
         {
             var pairs = kvPair.Split(";");

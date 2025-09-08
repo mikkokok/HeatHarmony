@@ -1,6 +1,8 @@
 ﻿using HeatHarmony.Config;
 using HeatHarmony.Models;
+using Microsoft.AspNetCore.Http;
 using System;
+using System.Globalization;
 
 namespace HeatHarmony.Providers
 {
@@ -12,7 +14,8 @@ namespace HeatHarmony.Providers
         public List<ElectricityPrice> TodayPrices { get; private set; } = [];
         public List<ElectricityPrice> TomorrowPrices { get; private set; } = [];
         public Task PriceTask { get; private set; }
-        private readonly int _priceHour = 15;
+        private int _priceHour = 15;
+        public CultureInfo finnishCulture = new("fi-FI");
         public PriceProvider(ILogger<PriceProvider> logger, IRequestProvider requestProvider)
         {
             _serviceName = nameof(PriceProvider);
@@ -22,33 +25,53 @@ namespace HeatHarmony.Providers
         }
         public async Task UpdatePrices()
         {
+            await UpdatePriceLists();
             while (true)
             {
-                try
+                if (DateTime.Now.Hour == _priceHour)
                 {
-                    if (DateTime.Now.Hour == _priceHour)
+                    await UpdatePriceLists();
+
+                    DateTime parsedDate = DateTime.ParseExact(TomorrowPrices[0].date, GlobalConst.PriceTimeFormat, finnishCulture);
+                    if (parsedDate.Day <= DateTime.Now.Day)
                     {
-                        foreach (var urlSuffix in new string[] { "true", "false" })
+                        _priceHour++;
+                        if (_priceHour > 22)
                         {
-                            var url = GlobalConfig.PricesUrl + urlSuffix;
-                            var result = await _requestProvider.GetAsync<List<ElectricityPrice>>(HttpClientConst.PriceClient, url)
-                                ?? throw new Exception($"{_serviceName}:: UpdatePrices returned null from {url}");
-                            if (urlSuffix == "true")
-                            {
-                                TodayPrices = result;
-                            }
-                            else
-                            {
-                                TomorrowPrices = result;
-                            }
+                            _priceHour = 15;
                         }
                     }
+                    else
+                    {
+                        _priceHour = 15;
+                    }
+                    await Task.Delay(TimeSpan.FromMinutes(20));
                 }
-                catch (Exception ex)
+            }
+        }
+
+        private async Task UpdatePriceLists()
+        {
+            try
+            {
+                foreach (var urlSuffix in new string[] { "true", "false" })
                 {
-                    _logger.LogCritical(ex, $"{_serviceName}:: UpdatePrices failed");
+                    var url = GlobalConfig.PricesUrl + urlSuffix;
+                    var result = await _requestProvider.GetAsync<List<ElectricityPrice>>(HttpClientConst.PriceClient, url)
+                        ?? throw new Exception($"{_serviceName}:: UpdatePriceLists returned null from {url}");
+                    if (urlSuffix == "true")
+                    {
+                        TodayPrices = result;
+                    }
+                    else
+                    {
+                        TomorrowPrices = result;
+                    }
                 }
-                await Task.Delay(TimeSpan.FromMinutes(20));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogCritical(ex, $"{_serviceName}:: UpdatePriceLists failed");
             }
         }
     }
