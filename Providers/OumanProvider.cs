@@ -11,7 +11,7 @@ namespace HeatHarmony.Providers
         public double LatestFlowTemp { get; private set; }
         public double LatestInsideTemp { get; private set; }
         public double LatestMinFlowTemp { get; private set; }
-        public bool AutoDrive { get; private set; } = true;
+        public bool AutoTemp { get; private set; } = true;
         public Task OumanTask { get; private set; }
 
         public OumanProvider(ILogger<OumanProvider> logger, IRequestProvider requestProvider)
@@ -76,7 +76,7 @@ namespace HeatHarmony.Providers
                 var max = double.Parse(reading);
                 if (max == 100)
                 {
-                    AutoDrive = false;
+                    AutoTemp = false;
                 }
             }
         }
@@ -87,7 +87,7 @@ namespace HeatHarmony.Providers
             var result = await _requestProvider.GetAsync<string>(HttpClientConst.OumanClient, url);
             if (result != null)
             {
-                AutoDrive = true;
+                AutoTemp = true;
             }
         }
 

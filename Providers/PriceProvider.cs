@@ -1,7 +1,5 @@
 ﻿using HeatHarmony.Config;
 using HeatHarmony.Models;
-using Microsoft.AspNetCore.Http;
-using System;
 using System.Globalization;
 
 namespace HeatHarmony.Providers

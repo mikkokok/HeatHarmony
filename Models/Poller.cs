@@ -3,6 +3,7 @@
     public enum Poller
     {
         Ouman,
-        HeishaMon
+        HeishaMon,
+        TRV
     }
 }

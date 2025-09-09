@@ -1,7 +1,5 @@
 ﻿using HeatHarmony.Config;
 using HeatHarmony.Models;
-using System;
-using System.Reflection.Emit;
 using static HeatHarmony.Config.GlobalConfig;
 
 namespace HeatHarmony.Providers
@@ -21,32 +19,28 @@ namespace HeatHarmony.Providers
             _logger = logger;
             _requestProvider = requestProvider;
             _devices = ShellyTRVConfig ?? throw new Exception("No TRV devices in config!");
-            TRVTask = UpdateDeviceStatus();
+            TRVTask = HandleDeviceStatusUpdates();
         }
 
-        public async Task UpdateDeviceStatus()
+        public List<ShellyTRV> GetDevices()
+        {
+            return _devices;
+        }
+
+        public async Task HandleDeviceStatusUpdates()
         {
             while (true)
             {
-                foreach (var device in _devices)
+                await UpdateDeviceStatus(false);
+                for (int i = 0; i < 2; i++)
                 {
-                    var url = $"http://{device.IP}/status";
-                    try
+                    var updated = _devices.Where(d => d.Status == TRVStatusEnum.Ok).ToList();
+                    if (updated is null)
                     {
-                        var result = await _requestProvider.GetAsync<TRVStatusResponse>(HttpClientConst.ShellyClient, url)
-                            ?? throw new Exception($"{_serviceName}:: InitDevices returned null for {device.Name}");
-                        device.UpdatedAt = DateTime.Now;
-                        device.BatteryLevel = result.bat.value;
-                        device.Status = TRVStatusEnum.Ok;
-                        device.LatestLevel = result.thermostats.First().pos;
-                        device.AutoTemperature = result.thermostats.First().target_t.enabled;
+                        break;
                     }
-                    catch (Exception ex)
-                    {
-                        _logger.LogCritical(ex, $"{_serviceName}:: UpdateDeviceStatus failed for {device.Name} at {url}");
-                    }
-                    device.UpdatedAt = DateTime.Now;
-                    device.Status = TRVStatusEnum.Error;
+                    await UpdateDeviceStatus(true);
+                    await Task.Delay(TimeSpan.FromSeconds(10));
                 }
                 await Task.Delay(TimeSpan.FromMinutes(60));
             }
@@ -91,6 +85,42 @@ namespace HeatHarmony.Providers
                     _logger.LogCritical(ex, $"{_serviceName}:: SetAutoTemp failed for {trv.Name}");
                 }
             }
+        }
+
+        private async Task UpdateDeviceStatus(bool retryFailed)
+        {
+            foreach (var device in _devices)
+            {
+                if (retryFailed && device.Status != TRVStatusEnum.Ok)
+                {
+                    await SetDeviceStatus(device);
+                }
+                else if (!retryFailed)
+                {
+                    await SetDeviceStatus(device);
+                }
+            }
+        }
+
+        private async Task SetDeviceStatus(ShellyTRV device)
+        {
+            var url = $"http://{device.IP}/status";
+            try
+            {
+                var result = await _requestProvider.GetAsync<TRVStatusResponse>(HttpClientConst.ShellyClient, url)
+                    ?? throw new Exception($"{_serviceName}:: InitDevices returned null for {device.Name}");
+                device.UpdatedAt = DateTime.Now;
+                device.BatteryLevel = result.bat.value;
+                device.Status = TRVStatusEnum.Ok;
+                device.LatestLevel = result.thermostats.First().pos;
+                device.AutoTemperature = result.thermostats.First().target_t.enabled;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogCritical(ex, $"{_serviceName}:: UpdateDeviceStatus failed for {device.Name} at {url}");
+            }
+            device.UpdatedAt = DateTime.Now;
+            device.Status = TRVStatusEnum.Error;
         }
     }
 }
