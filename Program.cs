@@ -2,6 +2,7 @@ using HeatHarmony.Config;
 using HeatHarmony.Providers;
 using HeatHarmony.Routes;
 using HeatHarmony.Routes.Middlewares;
+using HeatHarmony.Workers;
 using Microsoft.AspNetCore.Routing.Constraints;
 
 var builder = WebApplication.CreateSlimBuilder(args);
@@ -22,6 +23,7 @@ builder.Services.AddSingleton<HeishaMonProvider>();
 builder.Services.AddSingleton<OumanProvider>();
 builder.Services.AddSingleton<PriceProvider>();
 builder.Services.AddSingleton<TRVProvider>();
+builder.Services.AddHostedService<HeatAutomationWorker>();
 
 builder.Services.AddHttpClient();
 var app = builder.Build();
@@ -39,5 +41,6 @@ app.UseMiddleware<ApiVersionHeaderMiddleware>();
 app.MapHeishaMonEndpoints();
 app.MapOumanEndPoints();
 app.MapTRVEndPoints();
+app.MapHeatAutomationEndpoints();
 
 app.Run();

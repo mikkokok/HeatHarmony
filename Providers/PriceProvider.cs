@@ -4,7 +4,7 @@ using System.Globalization;
 
 namespace HeatHarmony.Providers
 {
-    public class PriceProvider
+    public sealed class PriceProvider
     {
         private readonly string _serviceName;
         private readonly ILogger<PriceProvider> _logger;
@@ -13,7 +13,6 @@ namespace HeatHarmony.Providers
         public List<ElectricityPrice> TomorrowPrices { get; private set; } = [];
         public Task PriceTask { get; private set; }
         private int _priceHour = 15;
-        public CultureInfo finnishCulture = new("fi-FI");
         public PriceProvider(ILogger<PriceProvider> logger, IRequestProvider requestProvider)
         {
             _serviceName = nameof(PriceProvider);
@@ -21,7 +20,7 @@ namespace HeatHarmony.Providers
             _requestProvider = requestProvider;
             PriceTask = UpdatePrices();
         }
-        public async Task UpdatePrices()
+        private async Task UpdatePrices()
         {
             await UpdatePriceLists();
             while (true)
@@ -30,7 +29,7 @@ namespace HeatHarmony.Providers
                 {
                     await UpdatePriceLists();
 
-                    DateTime parsedDate = DateTime.ParseExact(TomorrowPrices[0].date, GlobalConst.PriceTimeFormat, finnishCulture);
+                    DateTime parsedDate = DateTime.ParseExact(TomorrowPrices[0].date, GlobalConst.PriceTimeFormat, CultureInfo.InvariantCulture);
                     if (parsedDate.Day <= DateTime.Now.Day)
                     {
                         _priceHour++;

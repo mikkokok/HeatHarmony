@@ -1,4 +1,5 @@
-﻿using Newtonsoft.Json;
+﻿using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace HeatHarmony.Models
 {
@@ -15,14 +16,14 @@ namespace HeatHarmony.Models
     {
         public required List<Heatpump> heatpump { get; set; }
 
-        [JsonProperty("1wire")]
+        [JsonPropertyName("1wire")]
         public required List<object> _1wire { get; set; }
         public required List<S0> s0 { get; set; }
     }
 
     public class S0
     {
-        [JsonProperty("S0 port")]
+        [JsonPropertyName("S0 port")]
         public required string S0port { get; set; }
         public required string Watt { get; set; }
         public required string Watthour { get; set; }

@@ -46,6 +46,24 @@ namespace HeatHarmony.Providers
             }
         }
 
+        public async Task<string> GetStringAsync(string clientName, string url)
+        {
+            _logger.LogInformation($"{_serviceName} {_operationId}:: start to get data to {url}");
+            var httpClient = _httpClientFactory.CreateClient(clientName);
+            try
+            {
+                using var response = await httpClient.GetAsync(url);
+                await HandleResponse(response);
+                var result = await response.Content.ReadAsStringAsync();
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"{_serviceName} {_operationId}:: Error getting from {url}");
+                throw;
+            }
+        }
+
         private static async Task HandleResponse(HttpResponseMessage response)
         {
             if (response.IsSuccessStatusCode)

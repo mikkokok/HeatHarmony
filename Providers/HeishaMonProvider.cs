@@ -11,7 +11,7 @@ namespace HeatHarmony.Providers
         public Task HeishaMonTask { get; private set; }
         public double MainInletTemp { get; private set; } = 0.0;
         public double MainOutletTemp { get; private set; } = 0.0;
-        public double MainTargetTemp { get; private set; } = 0.0;
+        public int MainTargetTemp { get; private set; } = 0;
         public HeishaMonProvider(ILogger<HeishaMonProvider> logger, IRequestProvider requestProvider)
         {
             _serviceName = nameof(HeishaMonProvider);
@@ -41,14 +41,14 @@ namespace HeatHarmony.Providers
             }
         }
 
-        public async Task SetTargetTemperature(double temperature)
+        public async Task SetTargetTemperature(int temperature)
         {
             try
             {
                 var url = GlobalConfig.HeishaUrl + $"commands?SetZ1HeatRequestTemperature={temperature}";
                 var result = await _requestProvider.GetAsync<string>(HttpClientConst.HeishaClient, url)
                     ?? throw new Exception($"{_serviceName}:: SetTargetTemperature returned null");
-                MainTargetTemp = double.Parse(result.Split(" ")[6]);
+                MainTargetTemp = int.Parse(result.Split(" ")[6]);
             }
             catch (Exception ex)
             {
@@ -61,7 +61,7 @@ namespace HeatHarmony.Providers
             switch (hinfo.Topic)
             {
                 case "TOP7":
-                    MainTargetTemp = double.Parse(hinfo.Value);
+                    MainTargetTemp = int.Parse(hinfo.Value);
                     break;
                 case "TOP6":
                     MainOutletTemp = double.Parse(hinfo.Value);
