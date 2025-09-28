@@ -4,6 +4,7 @@ using HeatHarmony.Routes;
 using HeatHarmony.Routes.Middlewares;
 using HeatHarmony.Workers;
 using Microsoft.AspNetCore.Routing.Constraints;
+using HeatHarmony.Extensions;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 
@@ -18,14 +19,15 @@ builder.Services.Configure<RouteOptions>(options => options.SetParameterPolicy<R
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+builder.Services.AddHostedService<HeatAutomationWorker>();
 builder.Services.AddSingleton<IRequestProvider, RequestProvider>();
 builder.Services.AddSingleton<HeishaMonProvider>();
 builder.Services.AddSingleton<OumanProvider>();
 builder.Services.AddSingleton<PriceProvider>();
 builder.Services.AddSingleton<TRVProvider>();
-builder.Services.AddHostedService<HeatAutomationWorker>();
+builder.Services.AddSingleton<HeatAutomationWorkerProvider>();
 
-builder.Services.AddHttpClient();
+builder.AddHttpClients();
 var app = builder.Build();
 
 app.UseSwagger();

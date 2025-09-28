@@ -14,7 +14,7 @@ namespace HeatHarmony.Routes
             }).WithName("GetLatestHeishaMonReadings");
             heishaMonEndpoints.MapGet("/task", ([FromServices] HeishaMonProvider heishaMonProvider) =>
             {
-                return Results.Ok(heishaMonProvider.HeishaMonTask);
+                return Results.Ok(heishaMonProvider.HeishaMonTask.Status.ToString());
             }).WithName("GetHeishaMonProviderTask");
         }
     }

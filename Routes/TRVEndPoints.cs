@@ -14,7 +14,7 @@ namespace HeatHarmony.Routes
             }).WithName("GetLatestTRVReadings");
             oumanEndpoints.MapGet("/task", ([FromServices] TRVProvider trvProvider) =>
             {
-                return Results.Ok(trvProvider.TRVTask);
+                return Results.Ok(trvProvider.TRVTask.Status.ToString());
             }).WithName("GetTRVProviderTask");
         }
     }

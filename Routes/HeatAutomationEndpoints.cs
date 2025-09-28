@@ -1,5 +1,5 @@
 ﻿using HeatHarmony.Models;
-using HeatHarmony.Workers;
+using HeatHarmony.Providers;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HeatHarmony.Routes
@@ -9,23 +9,47 @@ namespace HeatHarmony.Routes
         public static void MapHeatAutomationEndpoints(this WebApplication app)
         {
             var heatAutomationEndpoints = app.MapGroup("/heatautomation").WithTags("HeatAutomationEndpoints");
-            heatAutomationEndpoints.MapGet("/status", ([FromServices] HeatAutomationWorker heatAutomationWorker) =>
+            heatAutomationEndpoints.MapGet("/status", ([FromServices] HeatAutomationWorkerProvider heatAutomationWorkerProvider) =>
             {
-                return Results.Ok(new { heatAutomationWorker.isRunning,});
+                return Results.Ok(new { status = heatAutomationWorkerProvider.IsWorkerRunning });
             }).WithName("GetHeatAutomationStatus");
-            heatAutomationEndpoints.MapGet("/override", ([FromServices] HeatAutomationWorker heatAutomationWorker) =>
+            heatAutomationEndpoints.MapGet("/tasks", ([FromServices] HeatAutomationWorkerProvider heatAutomationWorkerProvider) =>
             {
-                return Results.Ok(new {heatAutomationWorker.overRide, heatAutomationWorker.overRideTemp});
-            }).WithName("GetHeatAutomationTask");
-            heatAutomationEndpoints.MapPost("/override", async ([FromServices] HeatAutomationWorker heatAutomationWorker, [FromBody] TemperatureOverride temperatureOverride) =>
+                return Results.Ok(new
+                {
+                    SetHeatBasedOnPriceTask = heatAutomationWorkerProvider.SetHeatBasedOnPriceTask?.Status.ToString() ?? "No SetHeatBasedOnPrice task",
+                    SetHeatBasedOnPriceTaskExceptions = heatAutomationWorkerProvider.SetHeatBasedOnPriceTask?.Exception?.Message != null
+                        ? [heatAutomationWorkerProvider.SetHeatBasedOnPriceTask.Exception.Message]
+                        : Array.Empty<string>(),
+                    OumanAndHeishamonSyncTask = heatAutomationWorkerProvider.OumanAndHeishamonSyncTask?.Status.ToString() ?? "No OumanAndHeishamonSync task",
+                    OumanAndHeishamonSyncTaskExceptions = heatAutomationWorkerProvider.OumanAndHeishamonSyncTask?.Exception?.Message != null
+                        ? [heatAutomationWorkerProvider.OumanAndHeishamonSyncTask.Exception.Message]
+                        : Array.Empty<string>()
+
+                });
+            }).WithName("GetHeatAutomationTaskStatus");
+            heatAutomationEndpoints.MapGet("/override", ([FromServices] HeatAutomationWorkerProvider heatAutomationWorkerProvider) =>
             {
-                if (!temperatureOverride.OverRidePrevious && heatAutomationWorker.overRide)
+                return Results.Ok(new { heatAutomationWorkerProvider.overRide, heatAutomationWorkerProvider.overRideTemp });
+            }).WithName("GetOverrideStatus");
+            heatAutomationEndpoints.MapPost("/override", async ([FromServices] HeatAutomationWorkerProvider heatAutomationWorkerProvider, [FromBody] TemperatureOverride temperatureOverride) =>
+            {
+                if (!temperatureOverride.OverRidePrevious && heatAutomationWorkerProvider.overRide)
                 {
                     return Results.Conflict(new { message = "Override already in progress" });
                 }
-                await heatAutomationWorker.OverRideTemp(temperatureOverride.Hours, temperatureOverride.Temperature, temperatureOverride.OverRidePrevious);
+                heatAutomationWorkerProvider.OverRideTemp(temperatureOverride.Hours, temperatureOverride.Temperature, temperatureOverride.OverRidePrevious);
                 return Results.Ok(new { message = $"Override set to {temperatureOverride.Temperature}°C for {temperatureOverride.Hours} hours" });
             }).WithName("SetOverrideTemp");
+            heatAutomationEndpoints.MapDelete("/override", ([FromServices] HeatAutomationWorkerProvider heatAutomationWorkerProvider) =>
+            {
+                if (!heatAutomationWorkerProvider.overRide)
+                {
+                    return Results.Conflict(new { message = "No override in progress" });
+                }
+                heatAutomationWorkerProvider.CancelOverRide();
+                return Results.Ok(new { message = "Override cancelled" });
+            }).WithName("CancelOverrideTemp");
         }
     }
 }

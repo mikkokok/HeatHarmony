@@ -22,7 +22,7 @@ namespace HeatHarmony.Providers
             OumanTask = GetLatestReadings();
 
         }
-        public async Task GetLatestReadings()
+        private async Task GetLatestReadings()
         {
             while (true)
             {
