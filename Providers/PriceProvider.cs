@@ -15,7 +15,10 @@ namespace HeatHarmony.Providers
         public List<LowPriceDateTimeRange> TomorrowLowPriceTimes { get; private set; } = [];
         public Task PriceTask { get; private set; }
         private int _priceHour = 15;
-        private decimal _startingPriceThreshold = 0.01m; // 1 cent per kWh
+
+        private record ParsedPrice(DateTime DateTime, decimal Price, ElectricityPrice Original);
+        private record HourlyGroup(DateTime HourStart, List<ParsedPrice> Slots, decimal AveragePrice);
+
         public PriceProvider(ILogger<PriceProvider> logger, IRequestProvider requestProvider)
         {
             _serviceName = nameof(PriceProvider);
@@ -23,6 +26,7 @@ namespace HeatHarmony.Providers
             _requestProvider = requestProvider;
             PriceTask = UpdatePrices();
         }
+
         private async Task UpdatePrices()
         {
             await UpdatePriceLists();
@@ -32,18 +36,29 @@ namespace HeatHarmony.Providers
                 {
                     await UpdatePriceLists();
 
-                    DateTime parsedDate = DateTime.ParseExact(TomorrowPrices[0].date, GlobalConst.PriceTimeFormat, CultureInfo.InvariantCulture);
-                    if (parsedDate.Day <= DateTime.Now.Day)
+                    if (TomorrowPrices.Count > 0)
                     {
-                        _priceHour++;
-                        if (_priceHour > 22)
+                        try
                         {
+                            DateTime parsedDate = DateTime.ParseExact(TomorrowPrices[0].date, GlobalConst.PriceTimeFormat, CultureInfo.InvariantCulture);
+                            if (parsedDate.Day <= DateTime.Now.Day)
+                            {
+                                _priceHour++;
+                                if (_priceHour > 22)
+                                {
+                                    _priceHour = 15;
+                                }
+                            }
+                            else
+                            {
+                                _priceHour = 15;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, $"{_serviceName}:: Error parsing tomorrow's first date");
                             _priceHour = 15;
                         }
-                    }
-                    else
-                    {
-                        _priceHour = 15;
                     }
                     await Task.Delay(TimeSpan.FromMinutes(30));
                 }
@@ -63,13 +78,14 @@ namespace HeatHarmony.Providers
                     if (urlSuffix == "true")
                     {
                         TodayPrices = result;
+                        TodayLowPriceTimes = CalculateLowPriceTimesWithRanks(TodayPrices);
                     }
                     else
                     {
                         TomorrowPrices = result;
+                        TomorrowLowPriceTimes = CalculateLowPriceTimesWithRanks(TomorrowPrices);
                     }
                 }
-                //var TodayLowPriceBlocks = FindConsecutiveLowPriceBlocks(TodayPrices, LowPriceThreshold);
             }
             catch (Exception ex)
             {
@@ -77,85 +93,135 @@ namespace HeatHarmony.Providers
             }
         }
 
-        //private List<List<ElectricityPrice>> FindConsecutiveLowPriceBlocks(IEnumerable<ElectricityPrice> prices, decimal threshold)
-        //{
-        //    var ordered = prices
-        //        .Select(p =>
-        //        {
-        //            DateTime? ts = null;
-        //            try
-        //            {
-        //                ts = DateTime.ParseExact(p.date, GlobalConst.PriceTimeFormat, CultureInfo.InvariantCulture);
-        //            }
-        //            catch (Exception e)
-        //            {
-        //                _logger.LogWarning(e, "{Service}:: Unable to parse date '{Date}'", _serviceName, p.date);
-        //            }
-        //            return new { Price = p, Time = ts };
-        //        })
-        //        .Where(x => x.Time.HasValue)
-        //        .OrderBy(x => x.Time)
-        //        .ToList();
+        private List<LowPriceDateTimeRange> CalculateLowPriceTimesWithRanks(List<ElectricityPrice> prices)
+        {
+            if (prices.Count == 0)
+                return [];
 
-        //    var result = new List<List<ElectricityPrice>>();
-        //    var current = new List<ElectricityPrice>();
-        //    DateTime? prev = null;
+            var sortedPrices = new List<ParsedPrice>();
+            
+            foreach (var price in prices)
+            {
+                try
+                {
+                    var dateTime = DateTime.ParseExact(price.date, GlobalConst.PriceTimeFormat, CultureInfo.InvariantCulture);
+                    var priceValue = decimal.Parse(price.price, NumberStyles.Float, CultureInfo.InvariantCulture);
+                    sortedPrices.Add(new ParsedPrice(dateTime, priceValue, price));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, $"{_serviceName}:: Error parsing price data: date='{price.date}', price='{price.price}'");
+                }
+            }
 
-        //    foreach (var entry in ordered)
-        //    {
-        //        if (!decimal.TryParse(entry.Price.price, NumberStyles.Any, CultureInfo.InvariantCulture, out var priceValue))
-        //        {
-        //            _logger.LogWarning("{Service}:: Could not parse price '{Value}'", _serviceName, entry.Price.price);
-        //            CloseCurrentIfEligible();
-        //            prev = entry.Time;
-        //            continue;
-        //        }
+            if (sortedPrices.Count == 0)
+                return [];
 
-        //        bool isLow = priceValue < threshold;
+            sortedPrices = [.. sortedPrices.OrderBy(p => p.DateTime)];
 
-        //        if (isLow)
-        //        {
-        //            if (current.Count == 0)
-        //            {
-        //                current.Add(entry.Price);
-        //            }
-        //            else
-        //            {
-        //                if (prev.HasValue && entry.Time.Value - prev.Value == SlotSpan)
-        //                {
-        //                    current.Add(entry.Price);
-        //                }
-        //                else
-        //                {
-        //                    // Gap -> close previous block
-        //                    CloseCurrentIfEligible();
-        //                    current.Clear();
-        //                    current.Add(entry.Price);
-        //                }
-        //            }
-        //        }
-        //        else
-        //        {
-        //            // Price too high -> close block if long enough
-        //            CloseCurrentIfEligible();
-        //            current.Clear();
-        //        }
+            var allPeriods = CreateHourBasedPeriods(sortedPrices);
+            
+            var sortedByPrice = allPeriods
+                .OrderBy(p => p.AveragePrice)
+                .ThenBy(p => p.Start)
+                .ToList();
+            
+            var rankedPeriods = new List<LowPriceDateTimeRange>();
+            int rank = 1;
+            
+            foreach (var period in sortedByPrice.Where(p => GetHoursInRange(p) >= 1.0))
+            {
+                if (rank <= 5)
+                {
+                    period.Rank = rank++;
+                    rankedPeriods.Add(period);
+                }
+            }
+            
+            foreach (var period in sortedByPrice.Where(p => !rankedPeriods.Contains(p)))
+            {
+                period.Rank = rank++;
+                rankedPeriods.Add(period);
+            }
+            
+            rankedPeriods.Sort((a, b) => a.Rank.CompareTo(b.Rank));
+            
+            _logger.LogInformation($"{_serviceName}:: Found {rankedPeriods.Count} ranked periods. " +
+                $"Top 5 ranks are full-hour+ periods. Total coverage: {rankedPeriods.Sum(r => GetHoursInRange(r)):F1} hours");
 
-        //        prev = entry.Time;
-        //    }
+            return rankedPeriods;
+        }
 
-        //    // Close tail
-        //    CloseCurrentIfEligible();
+        private static List<LowPriceDateTimeRange> CreateHourBasedPeriods(List<ParsedPrice> sortedPrices)
+        {
+            var periods = new List<LowPriceDateTimeRange>();
+            
+            var hourlyGroups = sortedPrices
+                .GroupBy(p => new DateTime(p.DateTime.Year, p.DateTime.Month, p.DateTime.Day, p.DateTime.Hour, 0, 0))
+                .OrderBy(g => g.Key)
+                .Select(g => new HourlyGroup(
+                    g.Key,
+                    [.. g.OrderBy(s => s.DateTime)],
+                    g.Average(s => s.Price)
+                ))
+                .ToList();
+            
+            if (hourlyGroups.Count == 0)
+                return periods;
+            
+            int currentIndex = 0;
+            
+            while (currentIndex < hourlyGroups.Count)
+            {
+                var periodGroups = new List<HourlyGroup> { hourlyGroups[currentIndex] };
+                int nextIndex = currentIndex + 1;
+                
+                while (nextIndex < hourlyGroups.Count)
+                {
+                    var currentAvg = periodGroups.Average(g => g.AveragePrice);
+                    var nextGroup = hourlyGroups[nextIndex];
+                    
+                    var lastGroup = periodGroups[^1];
+                    bool isConsecutiveHour = nextGroup.HourStart == lastGroup.HourStart.AddHours(1);
+                    bool isSimilarPrice = Math.Abs(nextGroup.AveragePrice - currentAvg) <= Math.Max(currentAvg * 0.2m, 0.01m);
+                    
+                    if (isConsecutiveHour && isSimilarPrice)
+                    {
+                        periodGroups.Add(nextGroup);
+                        nextIndex++;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+                
+                var allSlots = periodGroups.SelectMany(g => g.Slots).OrderBy(s => s.DateTime).ToList();
+                
+                if (allSlots.Count > 0)
+                {
+                    var start = allSlots[0].DateTime;
+                    var end = allSlots[^1].DateTime.AddMinutes(15);
+                    var averagePrice = allSlots.Average(s => s.Price);
+                    
+                    periods.Add(new LowPriceDateTimeRange
+                    {
+                        Start = start,
+                        End = end,
+                        AveragePrice = averagePrice,
+                        Rank = 0
+                    });
+                }
+                
+                currentIndex = nextIndex;
+            }
+            
+            return periods;
+        }
 
-        //    return result;
-
-        //    void CloseCurrentIfEligible()
-        //    {
-        //        if (current.Count >= 4) // 4 * 15min = at least 1 hour
-        //        {
-        //            result.Add([.. current]);
-        //        }
-        //    }
-        //}
+        private static double GetHoursInRange(LowPriceDateTimeRange range)
+        {
+            return (range.End - range.Start).TotalHours;
+        }
     }
 }

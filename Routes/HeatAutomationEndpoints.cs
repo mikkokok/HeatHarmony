@@ -32,7 +32,7 @@ namespace HeatHarmony.Routes
             {
                 return Results.Ok(new { heatAutomationWorkerProvider.overRide, heatAutomationWorkerProvider.overRideTemp });
             }).WithName("GetOverrideStatus");
-            heatAutomationEndpoints.MapPost("/override", async ([FromServices] HeatAutomationWorkerProvider heatAutomationWorkerProvider, [FromBody] TemperatureOverride temperatureOverride) =>
+            heatAutomationEndpoints.MapPost("/override", ([FromServices] HeatAutomationWorkerProvider heatAutomationWorkerProvider, [FromBody] TemperatureOverride temperatureOverride) =>
             {
                 if (!temperatureOverride.OverRidePrevious && heatAutomationWorkerProvider.overRide)
                 {
