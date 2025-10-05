@@ -86,6 +86,25 @@ namespace HeatHarmony.Providers
                 AutoTemp = true;
             }
         }
+
+        public async Task SetDefault()
+        {
+            await SetAutoDriveOn();
+            await SetInsideTemp(20.5);
+            await SetMinFlowTemp(20);
+        }
+
+        public async Task SetConservativeHeating()
+        {
+            await SetAutoDriveOn();
+            await SetMinFlowTemp(20);
+        }
+
+        public async Task SetRadicalHeating()
+        {
+            await SetMaximumFlow();
+            await SetMinFlowTemp(50);
+        }
         private void SetLatest(string kvPair)
         {
             var pairs = kvPair.Split(";");

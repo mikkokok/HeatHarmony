@@ -1,5 +1,4 @@
-﻿
-using HeatHarmony.Providers;
+﻿using HeatHarmony.Providers;
 using System.Formats.Asn1;
 
 namespace HeatHarmony.Workers
@@ -13,8 +12,10 @@ namespace HeatHarmony.Workers
         private readonly HeatAutomationWorkerProvider _heatAutomationWorkerProvider;
         private readonly PriceProvider _priceProvider;
         private readonly int _heatAddition = 3;
+        private readonly DateTime _startTime = DateTime.UtcNow;
+        private const int MaxInitializationMinutes = 30;
 
-        public HeatAutomationWorker(ILogger<HeatAutomationWorker> logger, HeishaMonProvider heishaMonProvider, 
+        public HeatAutomationWorker(ILogger<HeatAutomationWorker> logger, HeishaMonProvider heishaMonProvider,
             OumanProvider oumanProvider, HeatAutomationWorkerProvider heatAutomationWorkerProvider, PriceProvider priceProvider)
         {
             _serviceName = nameof(HeatAutomationWorker);
@@ -36,9 +37,10 @@ namespace HeatHarmony.Workers
                     _heatAutomationWorkerProvider.IsWorkerRunning = true;
                     _heatAutomationWorkerProvider.OumanAndHeishamonSyncTask = SyncOumanAndHeishamon(stoppingToken);
                     await _heatAutomationWorkerProvider.OumanAndHeishamonSyncTask;
-                    _heatAutomationWorkerProvider.SetHeatBasedOnPriceTask = SetHeatBasedOnPrice();
+                    _heatAutomationWorkerProvider.SetHeatBasedOnPriceTask = SetControlBasedOnPrice(stoppingToken);
                     await _heatAutomationWorkerProvider.SetHeatBasedOnPriceTask;
                     _logger.LogWarning($"{_serviceName}:: ExecuteAsync tasks completed unexpectedly, restarting...");
+                    await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -71,25 +73,51 @@ namespace HeatHarmony.Workers
             {
                 if (_heishaMonProvider.MainTargetTemp == 0 || _oumanProvider.LatestFlowDemand == 0.0)
                 {
+                    if (DateTime.UtcNow - _startTime > TimeSpan.FromMinutes(MaxInitializationMinutes))
+                    {
+                        _logger.LogError($"{_serviceName}:: Providers failed to initialize within {MaxInitializationMinutes} minutes");
+                        throw new InvalidOperationException("Provider initialization timeout");
+                    }
+
+                    _logger.LogWarning($"{_serviceName}:: Waiting for provider initialization...");
                     await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
                     continue;
                 }
                 var latestOuman = (int)Math.Round(_oumanProvider.LatestFlowDemand, 0, MidpointRounding.AwayFromZero);
-                if (_heishaMonProvider.MainTargetTemp != latestOuman)
+                var tolerance = 1;
+
+                if (Math.Abs(_heishaMonProvider.MainTargetTemp - latestOuman) > tolerance)
                 {
-                    _logger.LogInformation($"{_serviceName}:: Syncing Heishamon target temp {_heishaMonProvider.MainTargetTemp} to Ouman flow demand {_oumanProvider.LatestFlowDemand}");
-                    var newTarget = latestOuman + _heatAddition;
+                    var newTarget = Math.Clamp(latestOuman + _heatAddition, 20, 65);
+                    _logger.LogInformation($"{_serviceName}:: Adjusting target from {_heishaMonProvider.MainTargetTemp} to {newTarget}");
                     await _heishaMonProvider.SetTargetTemperature(newTarget);
                 }
+                _logger.LogInformation($"{_serviceName}:: Sync status - HeishaMon: {_heishaMonProvider.MainTargetTemp}°C, Ouman: {_oumanProvider.LatestFlowDemand}°C, Adjustment: {_heatAddition}°C");
                 await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
             }
         }
-        private async Task SetHeatBasedOnPrice()
+        private async Task SetControlBasedOnPrice(CancellationToken stoppingToken)
         {
-            if (_priceProvider.TodayLowPriceTimes.Count > 0)
+            while (!stoppingToken.IsCancellationRequested)
             {
-                _logger.LogInformation($"{_serviceName}:: Good");
+                if (_priceProvider.TodayLowPriceTimes.Count > 0)
+                {
+                    _logger.LogInformation($"{_serviceName}:: low price points found for today");
+
+                }
+                else
+                {
+                    _logger.LogCritical($"{_serviceName}:: no low prices have been count for today!, defaulting");
+                    await _oumanProvider.SetDefault();
+                    while (_priceProvider.TodayLowPriceTimes.Count == 0)
+                    {
+                        _logger.LogCritical($"{_serviceName}:: no low prices available for today, waiting");
+                        await Task.Delay(TimeSpan.FromMinutes(45), stoppingToken);
+                    }
+                }
+                await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
             }
+            _logger.LogInformation($"{_serviceName}:: SetHeatBasedOnPrice stopped running at: {DateTime.Now}");
         }
     }
 }
