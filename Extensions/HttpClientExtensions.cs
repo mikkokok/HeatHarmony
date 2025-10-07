@@ -6,32 +6,32 @@ namespace HeatHarmony.Extensions
     {
         public static IHostApplicationBuilder AddHttpClients(this IHostApplicationBuilder builder)
         {
-            builder.Services.AddHttpClient(HttpClientConst.PriceClient, client =>
+            var clientNames = new[]
+            {
+                HttpClientConst.PriceClient,
+                HttpClientConst.OumanClient,
+                HttpClientConst.HeishaClient,
+                HttpClientConst.ShellyClient,
+                HttpClientConst.Shelly3EMClient
+            };
+
+            foreach (var clientName in clientNames)
+            {
+                builder.AddStandardHttpClient(clientName);
+            }
+
+            return builder;
+        }
+
+        private static IHostApplicationBuilder AddStandardHttpClient(
+            this IHostApplicationBuilder builder, 
+            string clientName)
+        {
+            builder.Services.AddHttpClient(clientName, client =>
             {
                 client.Timeout = TimeSpan.FromSeconds(30);
             })
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
-            {
-            MaxConnectionsPerServer = 10
-            });
-            builder.Services.AddHttpClient(HttpClientConst.OumanClient, client =>
-            {
-                client.Timeout = TimeSpan.FromSeconds(30);
-            }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
-            {
-                MaxConnectionsPerServer = 10
-            });
-            builder.Services.AddHttpClient(HttpClientConst.HeishaClient, client =>
-            {
-                client.Timeout = TimeSpan.FromSeconds(30);
-            }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
-            {
-                MaxConnectionsPerServer = 10
-            });
-            builder.Services.AddHttpClient(HttpClientConst.ShellyClient, client =>
-            {
-                client.Timeout = TimeSpan.FromSeconds(30);
-            }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
             {
                 MaxConnectionsPerServer = 10
             });

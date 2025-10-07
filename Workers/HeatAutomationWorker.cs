@@ -11,12 +11,13 @@ namespace HeatHarmony.Workers
         private readonly OumanProvider _oumanProvider;
         private readonly HeatAutomationWorkerProvider _heatAutomationWorkerProvider;
         private readonly PriceProvider _priceProvider;
+        private readonly EMProvider _emProvider;
         private readonly int _heatAddition = 3;
         private readonly DateTime _startTime = DateTime.UtcNow;
         private const int MaxInitializationMinutes = 30;
 
         public HeatAutomationWorker(ILogger<HeatAutomationWorker> logger, HeishaMonProvider heishaMonProvider,
-            OumanProvider oumanProvider, HeatAutomationWorkerProvider heatAutomationWorkerProvider, PriceProvider priceProvider)
+            OumanProvider oumanProvider, HeatAutomationWorkerProvider heatAutomationWorkerProvider, PriceProvider priceProvider, EMProvider eMProvider)
         {
             _serviceName = nameof(HeatAutomationWorker);
             _logger = logger;
@@ -24,6 +25,7 @@ namespace HeatHarmony.Workers
             _oumanProvider = oumanProvider;
             _heatAutomationWorkerProvider = heatAutomationWorkerProvider;
             _priceProvider = priceProvider;
+            _emProvider = eMProvider
             _logger.LogInformation($"{_serviceName}:: Initialized successfully");
         }
 

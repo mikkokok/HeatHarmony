@@ -11,6 +11,7 @@ var builder = WebApplication.CreateSlimBuilder(args);
 GlobalConfig.ApiKey = builder.Configuration["ApiKey"];
 GlobalConfig.PricesUrl = builder.Configuration["PricesUrl"];
 GlobalConfig.HeishaUrl = builder.Configuration["HeishaUrl"];
+GlobalConfig.Shelly3EMUrl = builder.Configuration["Shelly3EMUrl"];
 GlobalConfig.ApiDocumentConfig = builder.Configuration.GetRequiredSection("ApiDocument").Get<GlobalConfig.ApiDocument>()!;
 GlobalConfig.ShellyTRVConfig = builder.Configuration.GetRequiredSection("ShellyTRV").Get<List<GlobalConfig.ShellyTRV>>();
 GlobalConfig.OumanConfig = builder.Configuration.GetRequiredSection("Ouman").Get<GlobalConfig.Ouman>();
@@ -25,6 +26,7 @@ builder.Services.AddSingleton<HeishaMonProvider>();
 builder.Services.AddSingleton<OumanProvider>();
 builder.Services.AddSingleton<PriceProvider>();
 builder.Services.AddSingleton<TRVProvider>();
+builder.Services.AddSingleton<EMProvider>(); 
 builder.Services.AddSingleton<HeatAutomationWorkerProvider>();
 
 builder.AddHttpClients();
