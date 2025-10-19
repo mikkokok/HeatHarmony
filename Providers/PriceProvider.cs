@@ -1,6 +1,7 @@
 ﻿using HeatHarmony.Config;
 using HeatHarmony.Models;
 using System.Globalization;
+using HeatHarmony.Helpers;
 
 namespace HeatHarmony.Providers
 {
@@ -129,7 +130,7 @@ namespace HeatHarmony.Providers
             var rankedPeriods = new List<LowPriceDateTimeRange>();
             int rank = 1;
             
-            foreach (var period in sortedByPrice.Where(p => GetHoursInRange(p) >= 1.0))
+            foreach (var period in sortedByPrice.Where(p => TimeHelpers.GetHoursInRange(p) >= 1.0))
             {
                 if (rank <= 5)
                 {
@@ -147,7 +148,7 @@ namespace HeatHarmony.Providers
             rankedPeriods.Sort((a, b) => a.Rank.CompareTo(b.Rank));
             
             _logger.LogInformation($"{_serviceName}:: Found {rankedPeriods.Count} ranked periods. " +
-                $"Top 5 ranks are full-hour+ periods. Total coverage: {rankedPeriods.Sum(r => GetHoursInRange(r)):F1} hours");
+                $"Top 5 ranks are full-hour+ periods. Total coverage: {rankedPeriods.Sum(r => TimeHelpers.GetHoursInRange(r)):F1} hours");
 
             return rankedPeriods;
         }
@@ -217,11 +218,6 @@ namespace HeatHarmony.Providers
             }
             
             return periods;
-        }
-
-        private static double GetHoursInRange(LowPriceDateTimeRange range)
-        {
-            return (range.End - range.Start).TotalHours;
         }
     }
 }
