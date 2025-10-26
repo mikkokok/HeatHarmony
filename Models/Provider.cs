@@ -1,9 +1,11 @@
 ﻿namespace HeatHarmony.Models
 {
-    public enum Poller
+    public enum Provider
     {
         Ouman,
         HeishaMon,
-        TRV
+        TRV,
+        Heisha,
+        EM
     }
 }

@@ -17,9 +17,13 @@ namespace HeatHarmony.Routes
             {
                 return Results.Ok(new
                 {
-                    SetHeatBasedOnPriceTask = heatAutomationWorkerProvider.SetHeatBasedOnPriceTask?.Status.ToString() ?? "No SetHeatBasedOnPrice task",
-                    SetHeatBasedOnPriceTaskExceptions = heatAutomationWorkerProvider.SetHeatBasedOnPriceTask?.Exception?.Message != null
-                        ? [heatAutomationWorkerProvider.SetHeatBasedOnPriceTask.Exception.Message]
+                    SetInsideTempBasedOnPriceTask = heatAutomationWorkerProvider.SetInsideTempBasedOnPriceTask?.Status.ToString() ?? "No SetHeatBasedOnPrice task",
+                    SetInsideTempBasedOnPriceTaskExceptions = heatAutomationWorkerProvider.SetInsideTempBasedOnPriceTask?.Exception?.Message != null
+                        ? [heatAutomationWorkerProvider.SetInsideTempBasedOnPriceTask.Exception.Message]
+                        : Array.Empty<string>(),
+                    SetUseWaterBasedOnPriceTask = heatAutomationWorkerProvider.SetUseWaterBasedOnPriceTask?.Status.ToString() ?? "No SetHeatBasedOnPrice task",
+                    SetUseWaterBasedOnPriceTaskExceptions = heatAutomationWorkerProvider.SetUseWaterBasedOnPriceTask?.Exception?.Message != null
+                        ? [heatAutomationWorkerProvider.SetUseWaterBasedOnPriceTask.Exception.Message]
                         : Array.Empty<string>(),
                     OumanAndHeishamonSyncTask = heatAutomationWorkerProvider.OumanAndHeishamonSyncTask?.Status.ToString() ?? "No OumanAndHeishamonSync task",
                     OumanAndHeishamonSyncTaskExceptions = heatAutomationWorkerProvider.OumanAndHeishamonSyncTask?.Exception?.Message != null

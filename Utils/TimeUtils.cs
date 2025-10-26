@@ -2,9 +2,9 @@
 using HeatHarmony.Models;
 using System;
 
-namespace HeatHarmony.Helpers
+namespace HeatHarmony.Utils
 {
-    public static class TimeHelpers
+    public static class TimeUtils
     {
         public static double GetHoursInRange(LowPriceDateTimeRange range)
         {

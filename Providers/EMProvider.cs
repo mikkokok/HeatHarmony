@@ -1,5 +1,6 @@
 ﻿using HeatHarmony.Config;
 using HeatHarmony.Models;
+using HeatHarmony.Utils;
 
 namespace HeatHarmony.Providers
 {
@@ -10,6 +11,7 @@ namespace HeatHarmony.Providers
         private readonly IRequestProvider _requestProvider = requestProvider;
         public DateTime? LastEnabled { get; private set; } = null;
         public bool IsOverridden { get; private set; } = false;
+        public List<HarmonyChange> Changes { get; private set; } = [];
 
         public async Task EnableWaterHeating()
         {
@@ -26,6 +28,7 @@ namespace HeatHarmony.Providers
                 {
                     LastEnabled = DateTime.Now;
                 }
+                LogUtils.AddChangeRecord(Changes, Provider.EM, HarmonyChangeType.EnableWaterHeating, "Water heating enabled.");
             }
             catch (Exception ex)
             {
@@ -48,6 +51,7 @@ namespace HeatHarmony.Providers
                 {
                     _logger.LogWarning($"{_serviceName}:: DisableWaterHeating did not turn off the relay.");
                 }
+                LogUtils.AddChangeRecord(Changes, Provider.EM, HarmonyChangeType.DisableWaterHeating, "Water heating disabled.");
             }
             catch (Exception ex)
             {
@@ -59,6 +63,7 @@ namespace HeatHarmony.Providers
         {
             await EnableWaterHeating();
             IsOverridden = true;
+            LogUtils.AddChangeRecord(Changes, Provider.EM, HarmonyChangeType.OverrideEnable, "Manual override to enable water heating.");
         }
         public bool HasRunEnough()
         {

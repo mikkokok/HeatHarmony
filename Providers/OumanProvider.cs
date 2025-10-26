@@ -1,4 +1,6 @@
 ﻿using HeatHarmony.Config;
+using HeatHarmony.Models;
+using HeatHarmony.Utils;
 
 namespace HeatHarmony.Providers
 {
@@ -13,6 +15,7 @@ namespace HeatHarmony.Providers
         public double LatestMinFlowTemp { get; private set; }
         public bool AutoTemp { get; private set; } = true;
         public Task OumanTask { get; private set; }
+        public List<HarmonyChange> Changes { get; private set; } = [];
 
         public OumanProvider(ILogger<OumanProvider> logger, IRequestProvider requestProvider)
         {
@@ -48,7 +51,9 @@ namespace HeatHarmony.Providers
             if (result != null) {
                 var reading = result.Split("?")[1].Split("=")[1];
                 LatestMinFlowTemp = double.Parse(reading);
+                LogUtils.AddChangeRecord(Changes, Provider.Ouman, HarmonyChangeType.SetMinFlowTemp, $"New temp {newTemp}");
             }
+
         }
         public async Task SetInsideTemp(double newTemp)
         {
@@ -59,6 +64,7 @@ namespace HeatHarmony.Providers
             {
                 var reading = result.Split("?")[1].Split("=")[1];
                 LatestInsideTempDemand = double.Parse(reading);
+                LogUtils.AddChangeRecord(Changes, Provider.Ouman, HarmonyChangeType.SetInsideTemp, $"New temp {newTemp}");
             }
         }
         public async Task SetMaximumFlow()
@@ -75,6 +81,7 @@ namespace HeatHarmony.Providers
                     AutoTemp = false;
                 }
             }
+            LogUtils.AddChangeRecord(Changes, Provider.Ouman, HarmonyChangeType.SetMaximumFlow);
         }
         public async Task SetAutoDriveOn()
         {
@@ -85,6 +92,7 @@ namespace HeatHarmony.Providers
             {
                 AutoTemp = true;
             }
+            LogUtils.AddChangeRecord(Changes, Provider.Ouman, HarmonyChangeType.SetAutoDriveOn);
         }
 
         public async Task SetDefault()
@@ -92,18 +100,13 @@ namespace HeatHarmony.Providers
             await SetAutoDriveOn();
             await SetInsideTemp(20.5);
             await SetMinFlowTemp(20);
+            LogUtils.AddChangeRecord(Changes,Provider.Ouman, HarmonyChangeType.SetDefault);
         }
 
         public async Task SetConservativeHeating()
         {
             await SetAutoDriveOn();
             await SetMinFlowTemp(20);
-        }
-
-        public async Task SetRadicalHeating()
-        {
-            await SetMaximumFlow();
-            await SetMinFlowTemp(50);
         }
         private void SetLatest(string kvPair)
         {

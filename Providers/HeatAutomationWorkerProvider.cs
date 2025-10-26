@@ -15,7 +15,8 @@ namespace HeatHarmony.Providers
         private CancellationTokenSource _overRideCancellationTokenSource = new();
         public bool IsWorkerRunning { get; set; }
         public Task? OumanAndHeishamonSyncTask { get; set; }
-        public Task? SetHeatBasedOnPriceTask { get; set; }
+        public Task? SetUseWaterBasedOnPriceTask { get; set; }
+        public Task? SetInsideTempBasedOnPriceTask { get; set; }
 
         public HeatAutomationWorkerProvider(ILogger <HeatAutomationWorkerProvider> logger, IRequestProvider requestProvider, OumanProvider oumanProvider)
         {

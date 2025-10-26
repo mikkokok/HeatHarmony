@@ -36,5 +36,15 @@ namespace HeatHarmony.Config
             public required string Username { get; set; }
             public required string Password { get; set; }
         }
+
+        public class HeatAutomationConfig
+        {
+            public const int MaxInitializationMinutes = 30;
+            public const int HeatAddition = 3;
+            public const decimal CheapPriceThreshold = 0.05m;
+            public const decimal ModeratePriceThreshold = 0.10m;
+            public const decimal ExpensivePriceThreshold = 0.20m;
+            public const int EmergencyHeatingHours = 48;
+        }
     }
 }

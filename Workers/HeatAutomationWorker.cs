@@ -1,6 +1,6 @@
-﻿using HeatHarmony.Helpers;
+﻿using HeatHarmony.Utils;
 using HeatHarmony.Providers;
-using System.Formats.Asn1;
+using HeatHarmony.Config;
 
 namespace HeatHarmony.Workers
 {
@@ -13,9 +13,7 @@ namespace HeatHarmony.Workers
         private readonly HeatAutomationWorkerProvider _heatAutomationWorkerProvider;
         private readonly PriceProvider _priceProvider;
         private readonly EMProvider _emProvider;
-        private readonly int _heatAddition = 3;
         private readonly DateTime _startTime = DateTime.UtcNow;
-        private const int MaxInitializationMinutes = 30;
 
         public HeatAutomationWorker(ILogger<HeatAutomationWorker> logger, HeishaMonProvider heishaMonProvider,
             OumanProvider oumanProvider, HeatAutomationWorkerProvider heatAutomationWorkerProvider, PriceProvider priceProvider, EMProvider eMProvider)
@@ -32,16 +30,22 @@ namespace HeatHarmony.Workers
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
+            _heatAutomationWorkerProvider.IsWorkerRunning = true;
             while (!stoppingToken.IsCancellationRequested)
             {
                 try
                 {
                     _logger.LogInformation($"{_serviceName}:: Running at: {DateTime.Now}");
-                    _heatAutomationWorkerProvider.IsWorkerRunning = true;
+
                     _heatAutomationWorkerProvider.OumanAndHeishamonSyncTask = SyncOumanAndHeishamon(stoppingToken);
                     await _heatAutomationWorkerProvider.OumanAndHeishamonSyncTask;
-                    _heatAutomationWorkerProvider.SetHeatBasedOnPriceTask = SetControlBasedOnPrice(stoppingToken);
-                    await _heatAutomationWorkerProvider.SetHeatBasedOnPriceTask;
+
+                    _heatAutomationWorkerProvider.SetUseWaterBasedOnPriceTask = SetUseWaterControlBasedOnPrice(stoppingToken);
+                    await _heatAutomationWorkerProvider.SetUseWaterBasedOnPriceTask;
+
+                    _heatAutomationWorkerProvider.SetInsideTempBasedOnPriceTask = SetInsideTempBasedOnPrice(stoppingToken);
+                    await _heatAutomationWorkerProvider.SetInsideTempBasedOnPriceTask;
+
                     _logger.LogWarning($"{_serviceName}:: ExecuteAsync tasks completed unexpectedly, restarting...");
                     await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken);
                 }
@@ -76,9 +80,9 @@ namespace HeatHarmony.Workers
             {
                 if (_heishaMonProvider.MainTargetTemp == 0 || _oumanProvider.LatestFlowDemand == 0.0)
                 {
-                    if (DateTime.UtcNow - _startTime > TimeSpan.FromMinutes(MaxInitializationMinutes))
+                    if (DateTime.UtcNow - _startTime > TimeSpan.FromMinutes(GlobalConfig.HeatAutomationConfig.MaxInitializationMinutes))
                     {
-                        _logger.LogError($"{_serviceName}:: Providers failed to initialize within {MaxInitializationMinutes} minutes");
+                        _logger.LogError($"{_serviceName}:: Providers failed to initialize within {GlobalConfig.HeatAutomationConfig.MaxInitializationMinutes} minutes");
                         throw new InvalidOperationException("Provider initialization timeout");
                     }
 
@@ -91,21 +95,21 @@ namespace HeatHarmony.Workers
 
                 if (Math.Abs(_heishaMonProvider.MainTargetTemp - latestOuman) > tolerance)
                 {
-                    var newTarget = Math.Clamp(latestOuman + _heatAddition, 20, 65);
+                    var newTarget = Math.Clamp(latestOuman + GlobalConfig.HeatAutomationConfig.HeatAddition, 20, 65);
                     _logger.LogInformation($"{_serviceName}:: Adjusting target from {_heishaMonProvider.MainTargetTemp} to {newTarget}");
                     await _heishaMonProvider.SetTargetTemperature(newTarget);
                 }
-                _logger.LogInformation($"{_serviceName}:: Sync status - HeishaMon: {_heishaMonProvider.MainTargetTemp}°C, Ouman: {_oumanProvider.LatestFlowDemand}°C, Adjustment: {_heatAddition}°C");
+                _logger.LogInformation($"{_serviceName}:: Sync status - HeishaMon: {_heishaMonProvider.MainTargetTemp}°C, Ouman: {_oumanProvider.LatestFlowDemand}°C, Adjustment: {GlobalConfig.HeatAutomationConfig.HeatAddition}°C");
                 await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
             }
         }
-        private async Task SetControlBasedOnPrice(CancellationToken stoppingToken)
+        private async Task SetUseWaterControlBasedOnPrice(CancellationToken stoppingToken)
         {
             while (!stoppingToken.IsCancellationRequested)
             {
                 try
                 {
-                    if (_priceProvider.TodayLowPriceTimes.Count > 0 && TimeHelpers.IsTimeToday(_priceProvider.TodayLowPriceTimes[0].Start))
+                    if (!IsPriceDataStale())
                     {
                         _logger.LogInformation($"{_serviceName}:: low price points found for today");
                         var hasRunEnough = _emProvider.HasRunEnough();
@@ -115,14 +119,15 @@ namespace HeatHarmony.Workers
                         {
                             _logger.LogInformation($"{_serviceName}:: Enabling water heating");
                             await _emProvider.EnableWaterHeating();
+                            await Task.Delay(TimeSpan.FromMinutes(30), stoppingToken);
                         }
                         else if (isCurrentlyRunning && !_emProvider.IsOverridden)
                         {
                             if (hasRunEnough || (!shouldEnable && !IsEmergencyHeatingNeeded()))
                             {
-                                _logger.LogInformation($"{_serviceName}:: Disabling water heating - " +
-                                    $"Reason: {(hasRunEnough ? "Has run enough" : "No longer optimal time")}");
+                                _logger.LogInformation($"{_serviceName}:: Disabling water heating - Reason: {(hasRunEnough ? "Has run enough" : "No longer optimal time")}");
                                 await _emProvider.DisableWaterHeating();
+                                await Task.Delay(TimeSpan.FromMinutes(30), stoppingToken);
                             }
                             else
                             {
@@ -138,7 +143,7 @@ namespace HeatHarmony.Workers
                     {
                         _logger.LogCritical($"{_serviceName}:: No low prices calculated for today! Using fallback strategy");
 
-                        if (_emProvider.LastEnabled == null || !TimeHelpers.IsTimeWithinHourRange(_emProvider.LastEnabled, 24))
+                        if (_emProvider.LastEnabled == null || !TimeUtils.IsTimeWithinHourRange(_emProvider.LastEnabled, 24))
                         {
                             if (!_emProvider.IsRunning() && !_emProvider.IsOverridden)
                             {
@@ -162,6 +167,31 @@ namespace HeatHarmony.Workers
             _logger.LogInformation($"{_serviceName}:: SetHeatBasedOnPrice stopped running at: {DateTime.Now}, cancellation being {stoppingToken.IsCancellationRequested}");
         }
 
+        private async Task SetInsideTempBasedOnPrice(CancellationToken stoppingToken)
+        {
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                try
+                {
+                    if (!IsPriceDataStale())
+                    {
+                        await ControlInsideTemp();
+                        await Task.Delay(TimeSpan.FromMinutes(15), stoppingToken);
+                    }
+                    else
+                    {
+                        _logger.LogWarning($"{_serviceName}:: No valid price data for today, maintaining default inside temp of 20°C");
+                        await _oumanProvider.SetConservativeHeating();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, $"{_serviceName}:: Error in SetInsideTempBasedOnPrice");
+                }
+                await Task.Delay(TimeSpan.FromMinutes(10), stoppingToken);
+            }
+        }
+
         private bool ShouldEnableWaterHeating()
         {
             if (_emProvider.IsRunning())
@@ -170,16 +200,16 @@ namespace HeatHarmony.Workers
             }
 
             var bestPricePeriod = _priceProvider.TodayLowPriceTimes.FirstOrDefault(tlp => tlp.Rank == 1);
-            var isRankDataValid = bestPricePeriod != null && TimeHelpers.IsTimeToday(bestPricePeriod.Start);
+            var isRankDataValid = bestPricePeriod != null && TimeUtils.IsTimeToday(bestPricePeriod.Start);
 
             _logger.LogInformation($"{_serviceName}:: Evaluating water heating enablement. " +
                 $"Best period: {bestPricePeriod?.Start:HH:mm}-{bestPricePeriod?.End:HH:mm} (Rank {bestPricePeriod?.Rank}), " +
                 $"Valid data: {isRankDataValid}, Last enabled: {_emProvider.LastEnabled}");
 
             // No valid price data and never enabled OR last enabled >24h ago
-            if (!isRankDataValid)
+            if (!isRankDataValid || bestPricePeriod == null)
             {
-                if (_emProvider.LastEnabled == null || !TimeHelpers.IsTimeWithinHourRange(_emProvider.LastEnabled, 24))
+                if (_emProvider.LastEnabled == null || !TimeUtils.IsTimeWithinHourRange(_emProvider.LastEnabled, 24))
                 {
                     _logger.LogInformation($"{_serviceName}:: No valid price data, enabling water heating as fallback");
                     return true;
@@ -188,27 +218,26 @@ namespace HeatHarmony.Workers
             }
 
             // Never enabled and approaching good price period (within 4 hours)
-            if (_emProvider.LastEnabled == null && TimeHelpers.HowManyHoursUntil(bestPricePeriod.Start) <= 4)
+            if (_emProvider.LastEnabled == null && TimeUtils.HowManyHoursUntil(bestPricePeriod.Start) <= 4)
             {
-                _logger.LogInformation($"{_serviceName}:: Never enabled and good price period approaching in {TimeHelpers.HowManyHoursUntil(bestPricePeriod.Start):F1} hours");
+                _logger.LogInformation($"{_serviceName}:: Never enabled and good price period approaching in {TimeUtils.HowManyHoursUntil(bestPricePeriod.Start):F1} hours");
                 return true;
             }
 
             // Currently in best price period and hasn't run in last 12 hours
-            if (TimeHelpers.IsCurrentTimeInRange(bestPricePeriod))
+            if (TimeUtils.IsCurrentTimeInRange(bestPricePeriod))
             {
-                if (_emProvider.LastEnabled == null || TimeHelpers.HowManyHoursUntil(_emProvider.LastEnabled) >= 12)
+                if (_emProvider.LastEnabled == null || TimeUtils.HowManyHoursUntil(_emProvider.LastEnabled) >= 12)
                 {
-                    var priceThreshold = 0.05m; // 5 cents per kWh
-                    if (bestPricePeriod.AveragePrice <= priceThreshold)
+                    if (bestPricePeriod.AveragePrice <= GlobalConfig.HeatAutomationConfig.CheapPriceThreshold)
                     {
                         _logger.LogInformation($"{_serviceName}:: In good price period (avg: {bestPricePeriod.AveragePrice:F4}) and sufficient time (12hrs) since last run");
                         return true;
                     }
                 }
-                else if (_emProvider.LastEnabled == null || TimeHelpers.HowManyHoursUntil(_emProvider.LastEnabled) >= 24)
+                else if (_emProvider.LastEnabled == null || TimeUtils.HowManyHoursUntil(_emProvider.LastEnabled) >= 24)
                 {
-                    var priceThreshold = 0.15m; // 5 cents per kWh
+                    var priceThreshold = 0.15m; // 15 cents per kWh
                     if (bestPricePeriod.AveragePrice <= priceThreshold)
                     {
                         _logger.LogInformation($"{_serviceName}:: In semi good price period (avg: {bestPricePeriod.AveragePrice:F4}) and sufficient time (24hrs) since last run");
@@ -218,7 +247,7 @@ namespace HeatHarmony.Workers
 
             }
             // Emergency case - hasn't run in 24+ hours regardless of price
-            if (_emProvider.LastEnabled != null && !TimeHelpers.IsTimeWithinHourRange(_emProvider.LastEnabled, 48))
+            if (_emProvider.LastEnabled != null && !TimeUtils.IsTimeWithinHourRange(_emProvider.LastEnabled, 48))
             {
                 _logger.LogWarning($"{_serviceName}:: Emergency water heating - hasn't run in >48 hours");
                 return true;
@@ -228,9 +257,119 @@ namespace HeatHarmony.Workers
             return false;
         }
 
+        private async Task ControlInsideTemp()
+        {
+            var bestPricePeriod = _priceProvider.TodayLowPriceTimes.FirstOrDefault(tlp => tlp.Rank == 1);
+            var isRankDataValid = bestPricePeriod != null && TimeUtils.IsTimeToday(bestPricePeriod.Start);
+            var mintemp = 20;
+            var maxtemp = 55;
+
+            // Set conservative heating if no valid data
+            if (bestPricePeriod == null || !isRankDataValid)
+            {
+                await _oumanProvider.SetConservativeHeating();
+                _logger.LogWarning($"{_serviceName}:: No valid price rank data for today, setting conservative heating. Check again in hour");
+                return;
+            }
+
+            var hours = TimeUtils.GetHoursInRange(bestPricePeriod);
+            if (_oumanProvider.LatestOutsideTemp >= 15 && TimeUtils.IsCurrentTimeInRange(bestPricePeriod)) // summer mode
+            {
+                switch (bestPricePeriod.AveragePrice)
+                {
+                    case <= GlobalConfig.HeatAutomationConfig.CheapPriceThreshold:
+                        mintemp = 35;
+                        maxtemp = 45;
+                        break;
+                    case <= GlobalConfig.HeatAutomationConfig.ModeratePriceThreshold:
+                        mintemp = 30;
+                        maxtemp = 40;
+                        break;
+                    case > GlobalConfig.HeatAutomationConfig.ModeratePriceThreshold:
+                        mintemp = 20;
+                        maxtemp = 20;
+                        break;
+                }
+                _logger.LogInformation($"{_serviceName}:: Summer mode active with cheap period ({hours:F1}h), setting MinFlowTemp to {mintemp}°C");
+                if (hours > 8)
+                {
+                    await SetOumanAutoAndMin(mintemp);
+                    return;
+                }
+                else
+                {
+                    await SetOumanAutoAndMin(maxtemp);
+                    return;
+                }
+            }
+            else if (_oumanProvider.LatestOutsideTemp > 0 && _oumanProvider.LatestOutsideTemp < 15 && TimeUtils.IsCurrentTimeInRange(bestPricePeriod)) // spring/autumn mode
+            {
+                _logger.LogInformation($"{_serviceName}:: Spring/autumn mode active with cheap period ({hours:F1}h), setting MinFlowTemp");
+                if (hours > 8)
+                {
+                    await SetOumanAutoAndMin(40);
+                    return;
+                }
+                else
+                {
+                    await SetOumanAutoAndMin(55);
+                    return;
+                }
+            }
+            else if (_oumanProvider.LatestOutsideTemp <= 0) // winter mode
+            {
+                var currentPeriod = _priceProvider.TodayLowPriceTimes.FirstOrDefault(p => TimeUtils.IsCurrentTimeInRange(p));
+                if (currentPeriod == null)
+                {
+                    _logger.LogInformation($"{_serviceName}:: Winter mode active, unable to calculate currentPeriod. Set auto.");
+                    await _oumanProvider.SetDefault();
+                    return;
+                }
+                if (currentPeriod.AveragePrice > GlobalConfig.HeatAutomationConfig.ExpensivePriceThreshold)
+                {
+                    _logger.LogInformation($"{_serviceName}:: Winter mode active with expensive period (Rank {currentPeriod.Rank}, Price {currentPeriod.AveragePrice:F4}), setting inside temp to 19°C");
+                    await SetOumanAutoAndInside(19);
+                    return;
+                }
+                if (currentPeriod.Rank == 1)
+                {
+                    _logger.LogInformation($"{_serviceName}:: Winter mode active with cheapest period (Rank 1), setting inside temp to 22°C");
+                    await SetOumanAutoAndInside(22);
+                    return;
+                }
+                else
+                {
+                    await SetOumanAutoAndInside(20);
+                    _logger.LogInformation($"{_serviceName}:: Winter mode active with cheap period (Rank {currentPeriod.Rank}), setting inside temp to 20°C");
+                    return;
+                }
+
+            }
+        }
+
         private bool IsEmergencyHeatingNeeded()
         {
-            return _emProvider.LastEnabled != null && !TimeHelpers.IsTimeWithinHourRange(_emProvider.LastEnabled, 48);
+            return _emProvider.LastEnabled != null && !TimeUtils.IsTimeWithinHourRange(_emProvider.LastEnabled, 48);
+        }
+        private bool IsPriceDataStale()
+        {
+            if (_priceProvider.TodayPrices.Count == 0)
+            {
+                return true;
+            }
+            return !TimeUtils.IsTimeToday(_priceProvider.TodayLowPriceTimes[0].Start);
+        }
+
+        private async Task SetOumanAutoAndMin(int newMinTemp)
+        {
+            await _oumanProvider.SetAutoDriveOn();
+            await _oumanProvider.SetMinFlowTemp(newMinTemp);
+        }
+
+        private async Task SetOumanAutoAndInside(int newInsideTemp)
+        {
+            await _oumanProvider.SetAutoDriveOn();
+            await _oumanProvider.SetInsideTemp(newInsideTemp);
         }
     }
 }

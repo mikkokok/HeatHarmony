@@ -1,4 +1,5 @@
 ﻿using HeatHarmony.Providers;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HeatHarmony.Routes
@@ -10,13 +11,18 @@ namespace HeatHarmony.Routes
             var emEndpoints = app.MapGroup("/em").WithTags("EmEndpoints");
             emEndpoints.MapGet("/latest", ([FromServices] EMProvider eMProvider) =>
             {
-                return Results.Ok(new { eMProvider.LastEnabled, eMProvider.IsOverridden, isRunning = eMProvider.IsRunning()});
-            }).WithName("GetLatestEMStatus");
-            emEndpoints.MapPut("/enable", async ([FromServices] EMProvider eMProvider) =>
+                return Results.Ok(new { eMProvider.LastEnabled, eMProvider.IsOverridden, isRunning = eMProvider.IsRunning() });
+            }).WithName("GetLatestEM");
+            emEndpoints.MapGet("/status", ([FromServices] EMProvider eMProvider) =>
             {
-                await eMProvider.EnableWaterHeating();
-                return Results.Ok();
-            }).WithName("EnableEMWaterHeating");
+                return Results.Ok(eMProvider.Changes);
+            }).WithName("GetEMStatus");
+
+            emEndpoints.MapPut("/enable", async ([FromServices] EMProvider eMProvider) =>
+                        {
+                            await eMProvider.EnableWaterHeating();
+                            return Results.Ok();
+                        }).WithName("EnableEMWaterHeating");
             emEndpoints.MapPut("/disable", async ([FromServices] EMProvider eMProvider, [FromQuery(Name = "override")] bool overRide) =>
             {
                 if (eMProvider.IsOverridden && !overRide)

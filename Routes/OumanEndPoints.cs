@@ -12,6 +12,10 @@ namespace HeatHarmony.Routes
             {
                 return Results.Ok(new { oumanProvider.LatestOutsideTemp, oumanProvider.LatestFlowDemand, oumanProvider.LatestInsideTempDemand, oumanProvider.LatestMinFlowTemp, oumanProvider.AutoTemp });
             }).WithName("GetLatestOumanReadings");
+            oumanEndpoints.MapGet("/status", ([FromServices] OumanProvider oumanProvider) =>
+            {
+                return Results.Ok(oumanProvider.Changes);
+            }).WithName("GetOumanStatis");
             oumanEndpoints.MapGet("/task", ([FromServices] OumanProvider oumanProvider) =>
             {
                 return Results.Ok(oumanProvider.OumanTask.Status.ToString());
