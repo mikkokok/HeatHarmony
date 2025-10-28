@@ -85,6 +85,8 @@ namespace HeatHarmony.Providers
         }
         public async Task SetAutoDriveOn()
         {
+            if (AutoTemp)
+                return;
             await Login();
             var url = GlobalConfig.OumanConfig!.Url + "update?S_59_85=0;";
             var result = await _requestProvider.GetStringAsync(HttpClientConst.OumanClient, url);
@@ -145,7 +147,7 @@ namespace HeatHarmony.Providers
         }
         private async Task Login()
         {
-            var url = GlobalConfig.OumanConfig!.Url + "login?uid=" + GlobalConfig.OumanConfig?.Username + ";pwd=" + GlobalConfig.OumanConfig?.Password;
+            var url = GlobalConfig.OumanConfig!.Url + "login?uid=" + GlobalConfig.OumanConfig!.Username + ";pwd=" + GlobalConfig.OumanConfig!.Password;
             await _requestProvider.GetStringAsync(HttpClientConst.OumanClient, url);
         }
     }

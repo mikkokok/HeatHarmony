@@ -60,16 +60,25 @@ namespace HeatHarmony.Providers
             }
         }
 
-        public async Task SetAutoTemp(bool enable)
+        public async Task SetAutoTemp(bool enable, int? target)
         {
             foreach (var trv in _devices)
             {
+                if (trv.AutoTemperature == enable)
+                {
+                    _logger.LogInformation($"{_serviceName}:: SetAutoTemp for {trv.Name} already set to {enable}, skipping");
+                    continue;
+                }
                 try
                 {
                     string? url;
                     if (enable)
                     {
                         url = $"http://{trv.IP}/thermostat/settings/thermostat/0/?target_t_enabled=1";
+                        if (target != null)
+                        {
+                            url += $"&target_t={target}";
+                        }
                     }
                     else
                     {

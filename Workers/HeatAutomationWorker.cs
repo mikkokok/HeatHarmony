@@ -13,10 +13,11 @@ namespace HeatHarmony.Workers
         private readonly HeatAutomationWorkerProvider _heatAutomationWorkerProvider;
         private readonly PriceProvider _priceProvider;
         private readonly EMProvider _emProvider;
+        private readonly TRVProvider _tRVProvider;
         private readonly DateTime _startTime = DateTime.UtcNow;
 
         public HeatAutomationWorker(ILogger<HeatAutomationWorker> logger, HeishaMonProvider heishaMonProvider,
-            OumanProvider oumanProvider, HeatAutomationWorkerProvider heatAutomationWorkerProvider, PriceProvider priceProvider, EMProvider eMProvider)
+            OumanProvider oumanProvider, HeatAutomationWorkerProvider heatAutomationWorkerProvider, PriceProvider priceProvider, EMProvider eMProvider, TRVProvider tRVProvider)
         {
             _serviceName = nameof(HeatAutomationWorker);
             _logger = logger;
@@ -25,50 +26,39 @@ namespace HeatHarmony.Workers
             _heatAutomationWorkerProvider = heatAutomationWorkerProvider;
             _priceProvider = priceProvider;
             _emProvider = eMProvider;
+            _tRVProvider = tRVProvider;
             _logger.LogInformation($"{_serviceName}:: Initialized successfully");
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _heatAutomationWorkerProvider.IsWorkerRunning = true;
-            while (!stoppingToken.IsCancellationRequested)
+            try
             {
-                try
-                {
-                    _logger.LogInformation($"{_serviceName}:: Running at: {DateTime.Now}");
+                _logger.LogInformation($"{_serviceName}:: Running at: {DateTime.Now}");
 
-                    _heatAutomationWorkerProvider.OumanAndHeishamonSyncTask = SyncOumanAndHeishamon(stoppingToken);
-                    await _heatAutomationWorkerProvider.OumanAndHeishamonSyncTask;
+                _heatAutomationWorkerProvider.OumanAndHeishamonSyncTask = SyncOumanAndHeishamon(stoppingToken);
+                _heatAutomationWorkerProvider.SetUseWaterBasedOnPriceTask = SetUseWaterControlBasedOnPrice(stoppingToken);
+                _heatAutomationWorkerProvider.SetInsideTempBasedOnPriceTask = SetInsideTempBasedOnPrice(stoppingToken);
 
-                    _heatAutomationWorkerProvider.SetUseWaterBasedOnPriceTask = SetUseWaterControlBasedOnPrice(stoppingToken);
-                    await _heatAutomationWorkerProvider.SetUseWaterBasedOnPriceTask;
+                await Task.WhenAny(
+                    _heatAutomationWorkerProvider.OumanAndHeishamonSyncTask,
+                    _heatAutomationWorkerProvider.SetUseWaterBasedOnPriceTask,
+                    _heatAutomationWorkerProvider.SetInsideTempBasedOnPriceTask
+                 );
 
-                    _heatAutomationWorkerProvider.SetInsideTempBasedOnPriceTask = SetInsideTempBasedOnPrice(stoppingToken);
-                    await _heatAutomationWorkerProvider.SetInsideTempBasedOnPriceTask;
-
-                    _logger.LogWarning($"{_serviceName}:: ExecuteAsync tasks completed unexpectedly, restarting...");
-                    await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken);
-                }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-                {
-                    _logger.LogInformation($"{_serviceName}:: ExecuteAsync cancelled");
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, $"{_serviceName}:: ExecuteAsync failed, restarting in 30 seconds...");
-                    try
-                    {
-                        await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        break;
-                    }
-                }
-                _logger.LogError($"{_serviceName}:: ExecuteAsync failed really unexpectedly, restarting in 30 seconds...");
+                _logger.LogWarning($"{_serviceName}:: One or more tasks completed unexpectedly");
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation($"{_serviceName}:: ExecuteAsync cancelled");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"{_serviceName}:: ExecuteAsync failed, restarting in 30 seconds...");
+            }
+            finally {
                 _heatAutomationWorkerProvider.IsWorkerRunning = false;
-                await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
             }
             _logger.LogInformation($"{_serviceName}:: Stopped running at: {DateTime.Now}");
             _heatAutomationWorkerProvider.IsWorkerRunning = false;
@@ -119,7 +109,6 @@ namespace HeatHarmony.Workers
                         {
                             _logger.LogInformation($"{_serviceName}:: Enabling water heating");
                             await _emProvider.EnableWaterHeating();
-                            await Task.Delay(TimeSpan.FromMinutes(30), stoppingToken);
                         }
                         else if (isCurrentlyRunning && !_emProvider.IsOverridden)
                         {
@@ -221,6 +210,11 @@ namespace HeatHarmony.Workers
             if (_emProvider.LastEnabled == null && TimeUtils.HowManyHoursUntil(bestPricePeriod.Start) <= 4)
             {
                 _logger.LogInformation($"{_serviceName}:: Never enabled and good price period approaching in {TimeUtils.HowManyHoursUntil(bestPricePeriod.Start):F1} hours");
+                return false;
+            }
+
+            if (TimeUtils.GetCurrentTimePrice(_priceProvider.TodayLowPriceTimes) <= GlobalConfig.HeatAutomationConfig.CheapPriceThreshold)
+            {
                 return true;
             }
 
@@ -268,82 +262,109 @@ namespace HeatHarmony.Workers
             if (bestPricePeriod == null || !isRankDataValid)
             {
                 await _oumanProvider.SetConservativeHeating();
+                await SetTRVAuto();
                 _logger.LogWarning($"{_serviceName}:: No valid price rank data for today, setting conservative heating. Check again in hour");
                 return;
             }
 
             var hours = TimeUtils.GetHoursInRange(bestPricePeriod);
-            if (_oumanProvider.LatestOutsideTemp >= 15 && TimeUtils.IsCurrentTimeInRange(bestPricePeriod)) // summer mode
+            var latestOutsideTemp = _oumanProvider.LatestOutsideTemp;
+            if (latestOutsideTemp >= 15) // summer mode
             {
-                switch (bestPricePeriod.AveragePrice)
+                if (hours < 8) // add hours to reach 6h if needed
                 {
-                    case <= GlobalConfig.HeatAutomationConfig.CheapPriceThreshold:
-                        mintemp = 35;
-                        maxtemp = 45;
-                        break;
-                    case <= GlobalConfig.HeatAutomationConfig.ModeratePriceThreshold:
-                        mintemp = 30;
-                        maxtemp = 40;
-                        break;
-                    case > GlobalConfig.HeatAutomationConfig.ModeratePriceThreshold:
-                        mintemp = 20;
-                        maxtemp = 20;
-                        break;
+                    var additionalHoursNeeded = 6 - hours;
+                    if (additionalHoursNeeded > 0)
+                    {
+                        bestPricePeriod.End = bestPricePeriod.End.AddHours(additionalHoursNeeded);
+                    }
                 }
-                _logger.LogInformation($"{_serviceName}:: Summer mode active with cheap period ({hours:F1}h), setting MinFlowTemp to {mintemp}°C");
-                if (hours > 8)
+                if (TimeUtils.IsCurrentTimeInRange(bestPricePeriod))
                 {
-                    await SetOumanAutoAndMin(mintemp);
-                    return;
-                }
-                else
-                {
-                    await SetOumanAutoAndMin(maxtemp);
-                    return;
+                    switch (bestPricePeriod.AveragePrice)
+                    {
+                        case <= GlobalConfig.HeatAutomationConfig.CheapPriceThreshold:
+                            mintemp = 35;
+                            maxtemp = 45;
+                            break;
+                        case <= GlobalConfig.HeatAutomationConfig.ModeratePriceThreshold:
+                            mintemp = 30;
+                            maxtemp = 40;
+                            break;
+                        case > GlobalConfig.HeatAutomationConfig.ModeratePriceThreshold:
+                            mintemp = 20;
+                            maxtemp = 20;
+                            break;
+                    }
+                    _logger.LogInformation($"{_serviceName}:: Summer mode active with cheap period ({hours:F1}h), setting MinFlowTemp to {mintemp}°C");
+                    if (hours > 8)
+                    {
+                        await SetOumanAutoAndMin(mintemp);
+                        await SetTRVAuto();
+                        return;
+                    }
+                    else
+                    {
+                        await SetOumanAutoAndMin(maxtemp);
+                        await SetTRVMaxHeating();
+                        return;
+                    }
                 }
             }
-            else if (_oumanProvider.LatestOutsideTemp > 0 && _oumanProvider.LatestOutsideTemp < 15 && TimeUtils.IsCurrentTimeInRange(bestPricePeriod)) // spring/autumn mode
+            else if (latestOutsideTemp > 0 && TimeUtils.IsCurrentTimeInRange(bestPricePeriod)) // spring/autumn mode
             {
                 _logger.LogInformation($"{_serviceName}:: Spring/autumn mode active with cheap period ({hours:F1}h), setting MinFlowTemp");
                 if (hours > 8)
                 {
                     await SetOumanAutoAndMin(40);
+                    await SetTRVAuto();
                     return;
                 }
                 else
                 {
                     await SetOumanAutoAndMin(55);
+                    await SetTRVMaxHeating();
                     return;
                 }
             }
-            else if (_oumanProvider.LatestOutsideTemp <= 0) // winter mode
+            else if (latestOutsideTemp > -10) // winter mode
             {
                 var currentPeriod = _priceProvider.TodayLowPriceTimes.FirstOrDefault(p => TimeUtils.IsCurrentTimeInRange(p));
                 if (currentPeriod == null)
                 {
                     _logger.LogInformation($"{_serviceName}:: Winter mode active, unable to calculate currentPeriod. Set auto.");
                     await _oumanProvider.SetDefault();
+                    await SetTRVAuto();
                     return;
                 }
                 if (currentPeriod.AveragePrice > GlobalConfig.HeatAutomationConfig.ExpensivePriceThreshold)
                 {
                     _logger.LogInformation($"{_serviceName}:: Winter mode active with expensive period (Rank {currentPeriod.Rank}, Price {currentPeriod.AveragePrice:F4}), setting inside temp to 19°C");
                     await SetOumanAutoAndInside(19);
+                    await SetTRVAuto();
                     return;
                 }
                 if (currentPeriod.Rank == 1)
                 {
                     _logger.LogInformation($"{_serviceName}:: Winter mode active with cheapest period (Rank 1), setting inside temp to 22°C");
                     await SetOumanAutoAndInside(22);
+                    await SetTRVMaxHeating();
                     return;
                 }
                 else
                 {
                     await SetOumanAutoAndInside(20);
+                    await SetTRVAuto();
                     _logger.LogInformation($"{_serviceName}:: Winter mode active with cheap period (Rank {currentPeriod.Rank}), setting inside temp to 20°C");
                     return;
                 }
-
+            }
+            else  // extreme cold mode
+            {
+                _logger.LogInformation($"{_serviceName}:: Extreme cold mode active, setting inside temp to 19°C");
+                await SetOumanAutoAndInside(19);
+                await SetTRVAuto();
+                return;
             }
         }
 
@@ -370,6 +391,15 @@ namespace HeatHarmony.Workers
         {
             await _oumanProvider.SetAutoDriveOn();
             await _oumanProvider.SetInsideTemp(newInsideTemp);
+        }
+
+        private async Task SetTRVAuto()
+        {
+            await _tRVProvider.SetAutoTemp(true, null);
+        }
+        private async Task SetTRVMaxHeating()
+        {
+            await _tRVProvider.SetHeating(100);
         }
     }
 }
