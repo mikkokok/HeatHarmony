@@ -84,5 +84,11 @@ namespace HeatHarmony.Utils
         {
             return periods.FirstOrDefault(period => IsCurrentTimeInRange(period))?.AveragePrice;
         }
+
+        public static DateTime GetDateTimeInMidnight()
+        {
+            var now = DateTime.Now;
+            return new DateTime(now.Year, now.Month, now.Day, 0, 0, 0);
+        }
     }
 }

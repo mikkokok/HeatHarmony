@@ -267,21 +267,15 @@ namespace HeatHarmony.Workers
                 return;
             }
 
-            var hours = TimeUtils.GetHoursInRange(bestPricePeriod);
             var latestOutsideTemp = _oumanProvider.LatestOutsideTemp;
             if (latestOutsideTemp >= 15) // summer mode
             {
-                if (hours < 8) // add hours to reach 6h if needed
+                var nightPeriod = _priceProvider.GetBestNightPeriod();
+                var hours = TimeUtils.GetHoursInRange(nightPeriod);
+
+                if (TimeUtils.IsCurrentTimeInRange(nightPeriod))
                 {
-                    var additionalHoursNeeded = 6 - hours;
-                    if (additionalHoursNeeded > 0)
-                    {
-                        bestPricePeriod.End = bestPricePeriod.End.AddHours(additionalHoursNeeded);
-                    }
-                }
-                if (TimeUtils.IsCurrentTimeInRange(bestPricePeriod))
-                {
-                    switch (bestPricePeriod.AveragePrice)
+                    switch (nightPeriod.AveragePrice)
                     {
                         case <= GlobalConfig.HeatAutomationConfig.CheapPriceThreshold:
                             mintemp = 35;
@@ -313,6 +307,7 @@ namespace HeatHarmony.Workers
             }
             else if (latestOutsideTemp > 0 && TimeUtils.IsCurrentTimeInRange(bestPricePeriod)) // spring/autumn mode
             {
+                var hours = TimeUtils.GetHoursInRange(bestPricePeriod);
                 _logger.LogInformation($"{_serviceName}:: Spring/autumn mode active with cheap period ({hours:F1}h), setting MinFlowTemp");
                 if (hours > 8)
                 {
