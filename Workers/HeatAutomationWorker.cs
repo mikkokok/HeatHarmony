@@ -57,7 +57,8 @@ namespace HeatHarmony.Workers
             {
                 _logger.LogError(ex, $"{_serviceName}:: ExecuteAsync failed, restarting in 30 seconds...");
             }
-            finally {
+            finally
+            {
                 _heatAutomationWorkerProvider.IsWorkerRunning = false;
             }
             _logger.LogInformation($"{_serviceName}:: Stopped running at: {DateTime.Now}");
@@ -268,11 +269,11 @@ namespace HeatHarmony.Workers
             }
 
             var latestOutsideTemp = _oumanProvider.LatestOutsideTemp;
+            var nightPeriod = _priceProvider.GetBestNightPeriod();
+            var nightPeriodHours = TimeUtils.GetHoursInRange(nightPeriod);
+            var bestPeriodHours = TimeUtils.GetHoursInRange(bestPricePeriod);
             if (latestOutsideTemp >= 15) // summer mode
             {
-                var nightPeriod = _priceProvider.GetBestNightPeriod();
-                var hours = TimeUtils.GetHoursInRange(nightPeriod);
-
                 if (TimeUtils.IsCurrentTimeInRange(nightPeriod))
                 {
                     switch (nightPeriod.AveragePrice)
@@ -290,8 +291,8 @@ namespace HeatHarmony.Workers
                             maxtemp = 20;
                             break;
                     }
-                    _logger.LogInformation($"{_serviceName}:: Summer mode active with cheap period ({hours:F1}h), setting MinFlowTemp to {mintemp}°C");
-                    if (hours > 8)
+                    _logger.LogInformation($"{_serviceName}:: Summer mode active with night period ({nightPeriodHours:F1}h), setting MinFlowTemp to {mintemp}°C");
+                    if (nightPeriodHours > 8)
                     {
                         await SetOumanAutoAndMin(mintemp);
                         await SetTRVAuto();
@@ -304,23 +305,37 @@ namespace HeatHarmony.Workers
                         return;
                     }
                 }
-            }
-            else if (latestOutsideTemp > 0 && TimeUtils.IsCurrentTimeInRange(bestPricePeriod)) // spring/autumn mode
-            {
-                var hours = TimeUtils.GetHoursInRange(bestPricePeriod);
-                _logger.LogInformation($"{_serviceName}:: Spring/autumn mode active with cheap period ({hours:F1}h), setting MinFlowTemp");
-                if (hours > 8)
+                else
                 {
+                    _logger.LogInformation($"{_serviceName}:: Summer mode active but not in cheap period, setting MinFlowTemp to 20°C");
+                    await SetOumanAutoAndMin(20);
+                    await SetTRVAuto();
+                    return;
+                }
+            }
+            else if (latestOutsideTemp > 0 && (TimeUtils.IsCurrentTimeInRange(nightPeriod) || TimeUtils.IsCurrentTimeInRange(bestPricePeriod))) // spring/autumn mode in cheap period
+            {
+                if (bestPeriodHours > 16 && TimeUtils.IsCurrentTimeInRange(bestPricePeriod))
+                {
+                    _logger.LogInformation($"{_serviceName}:: Spring/autumn mode active with long cheap period ({bestPeriodHours:F1}h), setting MinFlowTemp to 40");
                     await SetOumanAutoAndMin(40);
                     await SetTRVAuto();
                     return;
                 }
-                else
+                else if (TimeUtils.IsCurrentTimeInRange(nightPeriod))
                 {
+                    _logger.LogInformation($"{_serviceName}:: Spring/autumn mode active with night period ({nightPeriodHours:F1}h), setting MinFlowTemp");
                     await SetOumanAutoAndMin(55);
                     await SetTRVMaxHeating();
                     return;
                 }
+            }
+            else if (latestOutsideTemp > 0) // spring/autumn mode not in cheap period
+            {
+                _logger.LogInformation($"{_serviceName}:: Spring/autumn mode active but not in cheap period, setting MinFlowTemp to 20°C");
+                await SetOumanAutoAndMin(20);
+                await SetTRVAuto();
+                return;
             }
             else if (latestOutsideTemp > -10) // winter mode
             {
@@ -348,9 +363,9 @@ namespace HeatHarmony.Workers
                 }
                 else
                 {
+                    _logger.LogInformation($"{_serviceName}:: Winter mode active with cheap period (Rank {currentPeriod.Rank}), setting inside temp to 20°C");
                     await SetOumanAutoAndInside(20);
                     await SetTRVAuto();
-                    _logger.LogInformation($"{_serviceName}:: Winter mode active with cheap period (Rank {currentPeriod.Rank}), setting inside temp to 20°C");
                     return;
                 }
             }
@@ -384,6 +399,7 @@ namespace HeatHarmony.Workers
 
         private async Task SetOumanAutoAndInside(int newInsideTemp)
         {
+            await _oumanProvider.SetMinFlowTemp(20);
             await _oumanProvider.SetAutoDriveOn();
             await _oumanProvider.SetInsideTemp(newInsideTemp);
         }

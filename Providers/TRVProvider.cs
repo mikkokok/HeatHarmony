@@ -50,6 +50,11 @@ namespace HeatHarmony.Providers
         {
             foreach (var trv in _devices)
             {
+                if (trv.LatestLevel == level)
+                {
+                    _logger.LogInformation($"{_serviceName}:: SetHeating for {trv.Name} already at level {level}, skipping");
+                    continue;
+                }
                 var url = $"http://{trv.IP}/thermostat/0?pos={level}";
                 var result = await _requestProvider.GetAsync<TRVThermoResponse>(HttpClientConst.ShellyClient, url)
                     ?? throw new Exception($"{_serviceName}:: SetHeating returned null for {trv.Name}");

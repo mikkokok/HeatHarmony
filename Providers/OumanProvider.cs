@@ -100,7 +100,7 @@ namespace HeatHarmony.Providers
         public async Task SetDefault()
         {
             await SetAutoDriveOn();
-            await SetInsideTemp(20.5);
+            await SetInsideTemp(20);
             await SetMinFlowTemp(20);
             LogUtils.AddChangeRecord(Changes,Provider.Ouman, HarmonyChangeType.SetDefault);
         }
