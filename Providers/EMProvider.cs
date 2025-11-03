@@ -9,7 +9,7 @@ namespace HeatHarmony.Providers
         private readonly string _serviceName = nameof(EMProvider);
         private readonly ILogger<EMProvider> _logger = logger;
         private readonly IRequestProvider _requestProvider = requestProvider;
-        public DateTime? LastEnabled { get; private set; } = null;
+        public DateTime LastEnabled { get; private set; } = DateTime.Now;
         public bool IsOverridden { get; private set; } = false;
         public List<HarmonyChange> Changes { get; private set; } = [];
 
@@ -67,11 +67,7 @@ namespace HeatHarmony.Providers
         }
         public bool HasRunEnough()
         {
-            if (LastEnabled == null)
-            {
-                return false;
-            }
-            var hasRunEnough = (DateTime.Now - LastEnabled.Value).TotalHours >= 3;
+            var hasRunEnough = (DateTime.Now - LastEnabled).TotalHours >= 3;
             if (hasRunEnough)
             {
                 IsOverridden = false;

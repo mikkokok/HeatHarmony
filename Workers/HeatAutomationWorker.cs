@@ -133,7 +133,7 @@ namespace HeatHarmony.Workers
                     {
                         _logger.LogCritical($"{_serviceName}:: No low prices calculated for today! Using fallback strategy");
 
-                        if (_emProvider.LastEnabled == null || !TimeUtils.IsTimeWithinHourRange(_emProvider.LastEnabled, 24))
+                        if (!TimeUtils.IsTimeWithinHourRange(_emProvider.LastEnabled, 24))
                         {
                             if (!_emProvider.IsRunning() && !_emProvider.IsOverridden)
                             {
@@ -196,21 +196,14 @@ namespace HeatHarmony.Workers
                 $"Best period: {bestPricePeriod?.Start:HH:mm}-{bestPricePeriod?.End:HH:mm} (Rank {bestPricePeriod?.Rank}), " +
                 $"Valid data: {isRankDataValid}, Last enabled: {_emProvider.LastEnabled}");
 
-            // No valid price data and never enabled OR last enabled >24h ago
+            // No valid price data OR last enabled >24h ago
             if (!isRankDataValid || bestPricePeriod == null)
             {
-                if (_emProvider.LastEnabled == null || !TimeUtils.IsTimeWithinHourRange(_emProvider.LastEnabled, 24))
+                if (!TimeUtils.IsTimeWithinHourRange(_emProvider.LastEnabled, 24))
                 {
                     _logger.LogInformation($"{_serviceName}:: No valid price data, enabling water heating as fallback");
                     return true;
                 }
-                return false;
-            }
-
-            // Never enabled and approaching good price period (within 4 hours)
-            if (_emProvider.LastEnabled == null && TimeUtils.HowManyHoursUntil(bestPricePeriod.Start) <= 4)
-            {
-                _logger.LogInformation($"{_serviceName}:: Never enabled and good price period approaching in {TimeUtils.HowManyHoursUntil(bestPricePeriod.Start):F1} hours");
                 return false;
             }
 
@@ -222,7 +215,7 @@ namespace HeatHarmony.Workers
             // Currently in best price period and hasn't run in last 12 hours
             if (TimeUtils.IsCurrentTimeInRange(bestPricePeriod))
             {
-                if (_emProvider.LastEnabled == null || TimeUtils.HowManyHoursUntil(_emProvider.LastEnabled) >= 12)
+                if (TimeUtils.HowManyHoursUntil(_emProvider.LastEnabled) >= 12)
                 {
                     if (bestPricePeriod.AveragePrice <= GlobalConfig.HeatAutomationConfig.CheapPriceThreshold)
                     {
@@ -230,7 +223,7 @@ namespace HeatHarmony.Workers
                         return true;
                     }
                 }
-                else if (_emProvider.LastEnabled == null || TimeUtils.HowManyHoursUntil(_emProvider.LastEnabled) >= 24)
+                else if (TimeUtils.HowManyHoursUntil(_emProvider.LastEnabled) >= 24)
                 {
                     var priceThreshold = 0.15m; // 15 cents per kWh
                     if (bestPricePeriod.AveragePrice <= priceThreshold)
@@ -242,7 +235,7 @@ namespace HeatHarmony.Workers
 
             }
             // Emergency case - hasn't run in 24+ hours regardless of price
-            if (_emProvider.LastEnabled != null && !TimeUtils.IsTimeWithinHourRange(_emProvider.LastEnabled, 48))
+            if (!TimeUtils.IsTimeWithinHourRange(_emProvider.LastEnabled, 48))
             {
                 _logger.LogWarning($"{_serviceName}:: Emergency water heating - hasn't run in >48 hours");
                 return true;
