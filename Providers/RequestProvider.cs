@@ -1,4 +1,5 @@
-﻿using System.Text.Json;
+﻿using HeatHarmony.Config;
+using System.Text.Json;
 
 namespace HeatHarmony.Providers
 {
@@ -48,8 +49,13 @@ namespace HeatHarmony.Providers
 
         public async Task<string> GetStringAsync(string clientName, string url)
         {
+
             _logger.LogInformation($"{_serviceName} {_operationId}:: start to get data to {url}");
             var httpClient = _httpClientFactory.CreateClient(clientName);
+            if (clientName == HttpClientConst.HeishaClient)
+            {
+                PatchHeishaMonClient(httpClient);
+            }
             try
             {
                 using var response = await httpClient.GetAsync(url);
@@ -62,6 +68,15 @@ namespace HeatHarmony.Providers
                 _logger.LogError(ex, $"{_serviceName} {_operationId}:: Error getting from {url}");
                 throw;
             }
+        }
+
+        private static void PatchHeishaMonClient(HttpClient httpClient)
+        {
+            httpClient.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("text/html"));
+            httpClient.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/xhtml+xml"));
+            httpClient.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/xml"));
+            httpClient.DefaultRequestHeaders.Add("Upgrade-Insecure-Requests", "1");
+            httpClient.DefaultRequestHeaders.Add("DNT", "1");
         }
 
         private static async Task HandleResponse(HttpResponseMessage response)

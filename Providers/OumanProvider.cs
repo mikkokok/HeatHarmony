@@ -49,7 +49,7 @@ namespace HeatHarmony.Providers
             var url = GlobalConfig.OumanConfig!.Url + "update?@_S_54_85=" + newTemp + ";";
             var result = await _requestProvider.GetStringAsync(HttpClientConst.OumanClient, url);
             if (result != null) {
-                var reading = result.Split("?")[1].Split("=")[1];
+                var reading = result.Split("?")[1].Split("=")[1].Split(";")[0];
                 LatestMinFlowTemp = double.Parse(reading);
                 LogUtils.AddChangeRecord(Changes, Provider.Ouman, HarmonyChangeType.SetMinFlowTemp, $"New temp {newTemp}");
             }
@@ -62,7 +62,7 @@ namespace HeatHarmony.Providers
             var result = await _requestProvider.GetStringAsync(HttpClientConst.OumanClient, url);
             if (result != null)
             {
-                var reading = result.Split("?")[1].Split("=")[1];
+                var reading = result.Split("?")[1].Split("=")[1].Split(";")[0];
                 LatestInsideTempDemand = double.Parse(reading);
                 LogUtils.AddChangeRecord(Changes, Provider.Ouman, HarmonyChangeType.SetInsideTemp, $"New temp {newTemp}");
             }
@@ -74,7 +74,7 @@ namespace HeatHarmony.Providers
             var result = await _requestProvider.GetStringAsync(HttpClientConst.OumanClient, url);
             if (result != null)
             {
-                var reading = result.Split("?")[1].Split("=")[1];
+                var reading = result.Split("?")[1].Split("=")[1].Split(";")[0];
                 var max = double.Parse(reading);
                 if (max == 100)
                 {

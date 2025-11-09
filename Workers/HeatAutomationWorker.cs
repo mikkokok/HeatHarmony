@@ -82,11 +82,12 @@ namespace HeatHarmony.Workers
                     continue;
                 }
                 var latestOuman = (int)Math.Round(_oumanProvider.LatestFlowDemand, 0, MidpointRounding.AwayFromZero);
+                var latestOumanWithHeishaAdjustment = latestOuman + GlobalConfig.HeatAutomationConfig.HeatAddition;
                 var tolerance = 1;
 
-                if (Math.Abs(_heishaMonProvider.MainTargetTemp - latestOuman) > tolerance)
+                if (Math.Abs(_heishaMonProvider.MainTargetTemp - latestOumanWithHeishaAdjustment) > tolerance)
                 {
-                    var newTarget = Math.Clamp(latestOuman + GlobalConfig.HeatAutomationConfig.HeatAddition, 20, 65);
+                    var newTarget = Math.Clamp(latestOumanWithHeishaAdjustment, 20, 65);
                     _logger.LogInformation($"{_serviceName}:: Adjusting target from {_heishaMonProvider.MainTargetTemp} to {newTarget}");
                     await _heishaMonProvider.SetTargetTemperature(newTarget);
                 }
@@ -373,7 +374,7 @@ namespace HeatHarmony.Workers
 
         private bool IsEmergencyHeatingNeeded()
         {
-            return _emProvider.LastEnabled != null && !TimeUtils.IsTimeWithinHourRange(_emProvider.LastEnabled, 48);
+            return !TimeUtils.IsTimeWithinHourRange(_emProvider.LastEnabled, 48);
         }
         private bool IsPriceDataStale()
         {

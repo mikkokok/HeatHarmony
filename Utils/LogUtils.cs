@@ -8,15 +8,15 @@ namespace HeatHarmony.Utils
         public static void AddChangeRecord(List<HarmonyChange> changeList, Provider provider, HarmonyChangeType changeType, string? description = null)
         {
             var oneWeekAgo = DateTime.Now.AddDays(-7);
-
-            changeList = [.. changeList.Where(c => c.Time >= oneWeekAgo),
-                  new HarmonyChange
-                  {
-                      Time = DateTime.Now,
-                      Provider = provider,
-                      ChangeType = changeType,
-                      Description = description
-                  }];
+            changeList.RemoveAll(c => c.Time < oneWeekAgo);
+            
+            changeList.Add(new HarmonyChange
+            {
+                Time = DateTime.Now,
+                Provider = provider,
+                ChangeType = changeType,
+                Description = description
+            });
         }
     }
 }

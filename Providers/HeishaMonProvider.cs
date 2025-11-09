@@ -45,8 +45,8 @@ namespace HeatHarmony.Providers
         {
             try
             {
-                var url = GlobalConfig.HeishaUrl + $"commands?SetZ1HeatRequestTemperature={temperature}";
-                var result = await _requestProvider.GetAsync<string>(HttpClientConst.HeishaClient, url)
+                var url = GlobalConfig.HeishaUrl + $"command?SetZ1HeatRequestTemperature={temperature}";
+                var result = await _requestProvider.GetStringAsync(HttpClientConst.HeishaClient, url)
                     ?? throw new Exception($"{_serviceName}:: SetTargetTemperature returned null");
                 MainTargetTemp = int.Parse(result.Split(" ")[6]);
             }

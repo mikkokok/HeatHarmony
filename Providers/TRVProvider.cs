@@ -79,7 +79,7 @@ namespace HeatHarmony.Providers
                     string? url;
                     if (enable)
                     {
-                        url = $"http://{trv.IP}/thermostat/settings/thermostat/0/?target_t_enabled=1";
+                        url = $"http://{trv.IP}/settings/thermostat/0/?target_t_enabled=1";
                         if (target != null)
                         {
                             url += $"&target_t={target}";
@@ -87,7 +87,7 @@ namespace HeatHarmony.Providers
                     }
                     else
                     {
-                        url = $"http://{trv.IP}/thermostat/settings/thermostat/0/?target_t_enabled=0";
+                        url = $"http://{trv.IP}/settings/thermostat/0/?target_t_enabled=0";
                     }
                     var result = await _requestProvider.GetAsync<TRVTempControlResponse>(HttpClientConst.ShellyClient, url)
                         ?? throw new Exception($"{_serviceName}:: SetAutoTemp returned null for {trv.Name}");
