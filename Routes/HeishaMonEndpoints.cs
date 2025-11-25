@@ -16,6 +16,11 @@ namespace HeatHarmony.Routes
             {
                 return Results.Ok(heishaMonProvider.HeishaMonTask.Status.ToString());
             }).WithName("GetHeishaMonProviderTask");
+            heishaMonEndpoints.MapGet("/status", ([FromServices] HeishaMonProvider heishaMonProvider) =>
+            {
+                return Results.Ok(heishaMonProvider.Changes);
+            }).WithName("GetHeishaMonProviderStatus");
+
         }
     }
 }

@@ -19,6 +19,7 @@
         SetAutoDriveOn,
         SetDefault,
         SetConservativeHeating,
-        OverrideEnable
+        OverrideEnable,
+        SetTargetTemp
     }
 }

@@ -46,5 +46,6 @@ app.MapHeishaMonEndpoints();
 app.MapOumanEndPoints();
 app.MapTRVEndPoints();
 app.MapHeatAutomationEndpoints();
+app.MapPriceEndPoints();
 
 app.Run();

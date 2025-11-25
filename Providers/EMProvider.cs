@@ -80,7 +80,7 @@ namespace HeatHarmony.Providers
         {
             try
             {
-                var url = GlobalConfig.Shelly3EMUrl + "/status";
+                var url = GlobalConfig.Shelly3EMUrl + "status";
                 var result = _requestProvider.GetAsync<EMStatusResponse>(HttpClientConst.Shelly3EMClient, url).Result
                     ?? throw new Exception($"{_serviceName}:: IsRunning returned null");
                 if (result.total_power > 100)

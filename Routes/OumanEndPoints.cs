@@ -15,7 +15,7 @@ namespace HeatHarmony.Routes
             oumanEndpoints.MapGet("/status", ([FromServices] OumanProvider oumanProvider) =>
             {
                 return Results.Ok(oumanProvider.Changes);
-            }).WithName("GetOumanStatis");
+            }).WithName("GetOumanStatus");
             oumanEndpoints.MapGet("/task", ([FromServices] OumanProvider oumanProvider) =>
             {
                 return Results.Ok(oumanProvider.OumanTask.Status.ToString());

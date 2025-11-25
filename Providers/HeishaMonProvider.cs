@@ -1,5 +1,6 @@
 ﻿using HeatHarmony.Config;
 using HeatHarmony.Models;
+using HeatHarmony.Utils;
 
 namespace HeatHarmony.Providers
 {
@@ -12,6 +13,7 @@ namespace HeatHarmony.Providers
         public double MainInletTemp { get; private set; } = 0.0;
         public double MainOutletTemp { get; private set; } = 0.0;
         public int MainTargetTemp { get; private set; } = 0;
+        public List<HarmonyChange> Changes { get; private set; } = [];
         public HeishaMonProvider(ILogger<HeishaMonProvider> logger, IRequestProvider requestProvider)
         {
             _serviceName = nameof(HeishaMonProvider);
@@ -49,6 +51,7 @@ namespace HeatHarmony.Providers
                 var result = await _requestProvider.GetStringAsync(HttpClientConst.HeishaClient, url)
                     ?? throw new Exception($"{_serviceName}:: SetTargetTemperature returned null");
                 MainTargetTemp = int.Parse(result.Split(" ")[6]);
+                LogUtils.AddChangeRecord(Changes, Provider.HeishaMon, HarmonyChangeType.SetTargetTemp, $"New temp {temperature}");
             }
             catch (Exception ex)
             {

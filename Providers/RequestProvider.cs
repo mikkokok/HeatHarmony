@@ -1,5 +1,6 @@
 ﻿using HeatHarmony.Config;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace HeatHarmony.Providers
 {
@@ -12,26 +13,26 @@ namespace HeatHarmony.Providers
 
         public async Task PostAsync<TRequest>(string clientName, string url, TRequest data)
         {
-            _logger.LogInformation($"{_serviceName} {_operationId}:: start to send data to {url}");
+            LogUrl(url, "post");
             var httpClient = _httpClientFactory.CreateClient(clientName);
             try
             {
                 var requestContent = SerializeToJson(data);
-                _logger.LogInformation($"{_serviceName} {_operationId}:: serialization succeeded");
+                _logger.LogInformation($"{DateTime.Now} {_serviceName} {_operationId}:: serialization succeeded");
                 using var response = await httpClient.PostAsync(url, requestContent);
                 await HandleResponse(response);
-                _logger.LogInformation($"{_serviceName} {_operationId}:: sending data to {url} succeeded");
+                _logger.LogInformation($"{DateTime.Now} {_serviceName} {_operationId}:: sending data to {url} succeeded");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"{_serviceName} {_operationId}:: Error sending request to {url}");
+                _logger.LogError(ex, $"{DateTime.Now} {_serviceName} {_operationId}:: Error sending request to {url}");
                 throw;
             }
         }
 
         public async Task<TResult?> GetAsync<TResult>(string clientName, string url)
         {
-            _logger.LogInformation($"{_serviceName} {_operationId}:: start to get data to {url}");
+            LogUrl(url, "get");
             var httpClient = _httpClientFactory.CreateClient(clientName);
             try
             {
@@ -42,15 +43,14 @@ namespace HeatHarmony.Providers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"{_serviceName} {_operationId}:: Error getting from {url}");
+                _logger.LogError(ex, $"{DateTime.Now} {_serviceName} {_operationId}:: Error getting from {url}");
                 throw;
             }
         }
 
         public async Task<string> GetStringAsync(string clientName, string url)
         {
-
-            _logger.LogInformation($"{_serviceName} {_operationId}:: start to get data to {url}");
+            LogUrl(url, "get");
             var httpClient = _httpClientFactory.CreateClient(clientName);
             if (clientName == HttpClientConst.HeishaClient)
             {
@@ -65,7 +65,7 @@ namespace HeatHarmony.Providers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"{_serviceName} {_operationId}:: Error getting from {url}");
+                _logger.LogError(ex, $"{DateTime.Now} {_serviceName} {_operationId}:: Error getting from {url}");
                 throw;
             }
         }
@@ -86,7 +86,7 @@ namespace HeatHarmony.Providers
                 return;
             }
             var content = await response.Content.ReadAsStringAsync();
-            throw new HttpRequestException($"Request failed {response.StatusCode} with content {content}");
+            throw new HttpRequestException($"{DateTime.Now} Request failed {response.StatusCode} with content {content}");
         }
 
         private static async Task<T?> ReadFromJsonASync<T>(HttpContent content)
@@ -99,6 +99,12 @@ namespace HeatHarmony.Providers
         private static JsonContent SerializeToJson<T>(T data)
         {
             return JsonContent.Create(data);
+        }
+
+        private void LogUrl(string url, string method)
+        {
+            url = Regex.Replace(url, @"(pwd=)[^\n]*", "$1********");
+            _logger.LogInformation($"{DateTime.Now} {_serviceName} {_operationId}:: URL: {url}, Method: {method}");
         }
     }
 }

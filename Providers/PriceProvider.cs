@@ -12,8 +12,10 @@ namespace HeatHarmony.Providers
         private readonly IRequestProvider _requestProvider;
         public List<ElectricityPrice> TodayPrices { get; private set; } = [];
         public List<ElectricityPrice> TomorrowPrices { get; private set; } = [];
-        public List<LowPriceDateTimeRange> TodayLowPriceTimes { get; private set; } = [];
+        public List<LowPriceDateTimeRange> TodayLowPriceTimes { get; private set; } = []; 
         public List<LowPriceDateTimeRange> TomorrowLowPriceTimes { get; private set; } = [];
+        public List<LowPriceDateTimeRange> AllLowPriceTimes { get; private set; } = [];
+
         public Task PriceTask { get; private set; }
         private int _priceHour = 15;
 
@@ -71,22 +73,23 @@ namespace HeatHarmony.Providers
         {
             try
             {
-                foreach (var urlSuffix in new string[] { "true", "false" })
+                foreach (var urlSuffix in new string[] { "today", "tomorrow" })
                 {
                     var url = GlobalConfig.PricesUrl + urlSuffix;
                     var result = await _requestProvider.GetAsync<List<ElectricityPrice>>(HttpClientConst.PriceClient, url)
                         ?? throw new Exception($"{_serviceName}:: UpdatePriceLists returned null from {url}");
-                    if (urlSuffix == "true")
+                    if (urlSuffix == "today")
                     {
                         TodayPrices = result;
-                        TodayLowPriceTimes = CalculateLowPriceTimesWithRanks(TodayPrices);
                     }
                     else
                     {
                         TomorrowPrices = result;
-                        TomorrowLowPriceTimes = CalculateLowPriceTimesWithRanks(TomorrowPrices);
                     }
                 }
+                TodayLowPriceTimes = CalculateLowPriceTimesWithRanks(TodayPrices);
+                TomorrowLowPriceTimes = CalculateLowPriceTimesWithRanks(TomorrowPrices);
+                AllLowPriceTimes = [.. TodayLowPriceTimes, .. TomorrowLowPriceTimes];
             }
             catch (Exception ex)
             {

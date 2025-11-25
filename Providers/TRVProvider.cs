@@ -74,29 +74,46 @@ namespace HeatHarmony.Providers
                     _logger.LogInformation($"{_serviceName}:: SetAutoTemp for {trv.Name} already set to {enable}, skipping");
                     continue;
                 }
-                try
-                {
-                    string? url;
-                    if (enable)
-                    {
-                        url = $"http://{trv.IP}/settings/thermostat/0/?target_t_enabled=1";
-                        if (target != null)
-                        {
-                            url += $"&target_t={target}";
-                        }
-                    }
-                    else
-                    {
-                        url = $"http://{trv.IP}/settings/thermostat/0/?target_t_enabled=0";
-                    }
-                    var result = await _requestProvider.GetAsync<TRVTempControlResponse>(HttpClientConst.ShellyClient, url)
-                        ?? throw new Exception($"{_serviceName}:: SetAutoTemp returned null for {trv.Name}");
-                    trv.AutoTemperature = result.target_t.enabled;
 
-                }
-                catch (Exception ex)
+                const int maxRetries = 3;
+                const int baseDelaySeconds = 10;
+                
+                for (int attempt = 1; attempt <= maxRetries; attempt++)
                 {
-                    _logger.LogCritical(ex, $"{_serviceName}:: SetAutoTemp failed for {trv.Name}");
+                    try
+                    {
+                        string? url;
+                        if (enable)
+                        {
+                            url = $"http://{trv.IP}/settings/thermostat/0/?target_t_enabled=1";
+                            if (target != null)
+                            {
+                                url += $"&target_t={target}";
+                            }
+                        }
+                        else
+                        {
+                            url = $"http://{trv.IP}/settings/thermostat/0/?target_t_enabled=0";
+                        }
+                        
+                        var result = await _requestProvider.GetAsync<TRVTempControlResponse>(HttpClientConst.ShellyClient, url)
+                            ?? throw new Exception($"{_serviceName}:: SetAutoTemp returned null for {trv.Name}");
+                        
+                        trv.AutoTemperature = result.target_t.enabled;
+                        _logger.LogInformation($"{_serviceName}:: SetAutoTemp to {enable} for {trv.Name} succeeded on attempt {attempt}");
+                        break; 
+                    }
+                    catch (Exception ex) when (attempt < maxRetries && (ex is HttpRequestException || ex is TaskCanceledException || ex is TimeoutException))
+                    {
+                        var delayMs = baseDelaySeconds * (int)Math.Pow(2, attempt - 1); // Exponential backoff: 10s, 20s, 40s
+                        _logger.LogWarning(ex, $"{_serviceName}:: SetAutoTemp failed for {trv.Name} on attempt {attempt}/{maxRetries}. Retrying in {delayMs}ms...");
+                        await Task.Delay(delayMs);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogCritical(ex, $"{_serviceName}:: SetAutoTemp failed for {trv.Name} on attempt {attempt}/{maxRetries}. No more retries.");
+                        break; 
+                    }
                 }
             }
         }
