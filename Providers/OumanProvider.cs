@@ -16,6 +16,7 @@ namespace HeatHarmony.Providers
         public bool AutoTemp { get; private set; } = true;
         public Task OumanTask { get; private set; }
         public List<HarmonyChange> Changes { get; private set; } = [];
+        public double LatestInsideTemp { get; private set; }
 
         public OumanProvider(ILogger<OumanProvider> logger, IRequestProvider requestProvider)
         {
@@ -29,7 +30,7 @@ namespace HeatHarmony.Providers
         {
             while (true)
             {
-                var url = GlobalConfig.OumanConfig!.Url + "request?S_275_85;S_227_85;S_54_85;S_81_85;S_59_85";
+                var url = GlobalConfig.OumanConfig!.Url + "request?S_275_85;S_227_85;S_54_85;S_81_85;S_59_85;S_284_85";
                 var result = await _requestProvider.GetStringAsync(HttpClientConst.OumanClient, url);
                 if (result != null)
                 {
@@ -138,6 +139,9 @@ namespace HeatHarmony.Providers
                         break;
                     case "S_59_85":
                         AutoTemp = value == "0";
+                        break;
+                    case "S_284_85":
+                        LatestInsideTemp = double.Parse(value);
                         break;
                     default:
                         _logger.LogWarning($"{_serviceName}:: SetLatest unknown code {code}");

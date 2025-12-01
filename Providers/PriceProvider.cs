@@ -15,6 +15,7 @@ namespace HeatHarmony.Providers
         public List<LowPriceDateTimeRange> TodayLowPriceTimes { get; private set; } = []; 
         public List<LowPriceDateTimeRange> TomorrowLowPriceTimes { get; private set; } = [];
         public List<LowPriceDateTimeRange> AllLowPriceTimes { get; private set; } = [];
+        public LowPriceDateTimeRange NightPeriodTimes { get; private set; } = new();
 
         public Task PriceTask { get; private set; }
         private int _priceHour = 15;
@@ -90,6 +91,7 @@ namespace HeatHarmony.Providers
                 TodayLowPriceTimes = CalculateLowPriceTimesWithRanks(TodayPrices);
                 TomorrowLowPriceTimes = CalculateLowPriceTimesWithRanks(TomorrowPrices);
                 AllLowPriceTimes = [.. TodayLowPriceTimes, .. TomorrowLowPriceTimes];
+                NightPeriodTimes = GetBestNightPeriod();
             }
             catch (Exception ex)
             {
@@ -223,15 +225,20 @@ namespace HeatHarmony.Providers
             return periods;
         }
 
-        public LowPriceDateTimeRange GetBestNightPeriod()
+        private LowPriceDateTimeRange GetBestNightPeriod()
         {
+            // Night window should always be between today 22:00 and tomorrow 08:00
+            var nightWindowStart = DateTime.Today.AddHours(22);          // 22:00 today
+            var nightWindowEnd   = DateTime.Today.AddDays(1).AddHours(8); // 08:00 tomorrow
+
             var defaultPeriod = new LowPriceDateTimeRange
             {
-                Start = TimeUtils.GetDateTimeInMidnight(),
-                End = DateTime.Today.AddDays(1).AddHours(8),
+                Start = nightWindowStart,
+                End = nightWindowStart.AddHours(10) > nightWindowEnd ? nightWindowEnd : nightWindowStart.AddHours(10),
                 AveragePrice = 0,
                 Rank = 0
             };
+
             if (TodayPrices.Count == 0 || TomorrowPrices.Count == 0)
             {
                 _logger.LogWarning($"{_serviceName}:: Insufficient price data for night period calculation - need both today and tomorrow");
@@ -240,132 +247,125 @@ namespace HeatHarmony.Providers
 
             var combinedPrices = new List<ParsedPrice>();
 
-            foreach (var price in TodayPrices.Where(p =>
+            // Collect today 22:00–23:45 (slots with hour >= 22)
+            foreach (var price in TodayPrices)
             {
-                if (DateTime.TryParseExact(p.date, GlobalConst.PriceTimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
-                    return dt.Hour >= 22;
-                return false;
-            }))
-            {
-                try
+                if (DateTime.TryParseExact(price.date, GlobalConst.PriceTimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt)
+                    && dt >= nightWindowStart && dt < DateTime.Today.AddDays(1))
                 {
-                    var dateTime = DateTime.ParseExact(price.date, GlobalConst.PriceTimeFormat, CultureInfo.InvariantCulture);
-                    var priceValue = decimal.Parse(price.price, NumberStyles.Float, CultureInfo.InvariantCulture);
-                    combinedPrices.Add(new ParsedPrice(dateTime, priceValue, price));
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, $"{_serviceName}:: Error parsing today's night price data: date='{price.date}', price='{price.price}'");
+                    TryAddPrice(price, combinedPrices);
                 }
             }
 
-            foreach (var price in TomorrowPrices.Where(p =>
+            // Collect tomorrow 00:00–07:45 (slots with hour < 8)
+            foreach (var price in TomorrowPrices)
             {
-                if (DateTime.TryParseExact(p.date, GlobalConst.PriceTimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
-                    return dt.Hour < 8;
-                return false;
-            }))
-            {
-                try
+                if (DateTime.TryParseExact(price.date, GlobalConst.PriceTimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt)
+                    && dt >= DateTime.Today.AddDays(1) && dt < nightWindowEnd)
                 {
-                    var dateTime = DateTime.ParseExact(price.date, GlobalConst.PriceTimeFormat, CultureInfo.InvariantCulture);
-                    var priceValue = decimal.Parse(price.price, NumberStyles.Float, CultureInfo.InvariantCulture);
-                    combinedPrices.Add(new ParsedPrice(dateTime, priceValue, price));
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, $"{_serviceName}:: Error parsing tomorrow's night price data: date='{price.date}', price='{price.price}'");
+                    TryAddPrice(price, combinedPrices);
                 }
             }
 
+            // Expect up to 10 hours * 4 = 40 slots; minimum search base 6h => 24 slots
             if (combinedPrices.Count < 24)
             {
-                _logger.LogWarning($"{_serviceName}:: Insufficient combined night price data for period calculation (got {combinedPrices.Count} slots, need 24+)");
+                _logger.LogWarning($"{_serviceName}:: Insufficient night price data (got {combinedPrices.Count} slots, need ≥24). Returning default 10h window.");
                 return defaultPeriod;
             }
 
             combinedPrices = [.. combinedPrices.OrderBy(p => p.DateTime)];
 
-            _logger.LogInformation($"{_serviceName}:: Calculating night period from {combinedPrices.Count} price slots " +
-                $"spanning {combinedPrices.First().DateTime:HH:mm} to {combinedPrices.Last().DateTime:HH:mm}");
+            _logger.LogInformation($"{_serviceName}:: Night window slot span {combinedPrices.First().DateTime:yyyy-MM-dd HH:mm} -> {combinedPrices.Last().DateTime:yyyy-MM-dd HH:mm} ({combinedPrices.Count} slots)");
 
             return FindOptimalNightPeriod(combinedPrices) ?? defaultPeriod;
         }
+
         private LowPriceDateTimeRange? FindOptimalNightPeriod(List<ParsedPrice> nightPrices)
         {
+            // nightPrices already constrained to 22:00–08:00 and ordered
             var candidates = new List<LowPriceDateTimeRange>();
+
+            // Evaluate target lengths 6..10 hours (inclusive)
             for (int targetHours = 6; targetHours <= 10; targetHours++)
             {
-                var slotsNeeded = targetHours * 4;
+                int slotsNeeded = targetHours * 4; // 15 min resolution
+                if (nightPrices.Count < slotsNeeded)
+                    break;
+
                 for (int startIndex = 0; startIndex <= nightPrices.Count - slotsNeeded; startIndex++)
                 {
-                    var periodSlots = nightPrices.Skip(startIndex).Take(slotsNeeded).ToList();
+                    var window = nightPrices.Skip(startIndex).Take(slotsNeeded).ToList();
+                    if (!IsContinuousPeriod(window))
+                        continue;
 
-                    if (IsContinuousPeriod(periodSlots))
+                    var start = window[0].DateTime;
+                    var end = window[^1].DateTime.AddMinutes(15);
+                    var avg = window.Average(s => s.Price);
+
+                    candidates.Add(new LowPriceDateTimeRange
                     {
-                        var start = periodSlots[0].DateTime;
-                        var end = periodSlots[^1].DateTime.AddMinutes(15);
-                        var averagePrice = periodSlots.Average(s => s.Price);
-
-                        candidates.Add(new LowPriceDateTimeRange
-                        {
-                            Start = start,
-                            End = end,
-                            AveragePrice = averagePrice,
-                            Rank = 0 
-                        });
-                    }
+                        Start = start,
+                        End = end,
+                        AveragePrice = avg,
+                        Rank = 0
+                    });
                 }
             }
 
             if (candidates.Count == 0)
             {
-                _logger.LogWarning($"{_serviceName}:: No continuous night periods found");
+                _logger.LogWarning($"{_serviceName}:: No continuous night period candidates found");
                 return null;
             }
 
-            var bestPeriod = candidates
+            // Choose lowest average price; if tie prefer longer; then earliest start
+            var best = candidates
                 .OrderBy(c => c.AveragePrice)
                 .ThenByDescending(c => TimeUtils.GetHoursInRange(c))
-                .ThenBy(c => c.Start) 
+                .ThenBy(c => c.Start)
                 .First();
 
-            bestPeriod.Rank = 1;
+            best.Rank = 1;
 
-            _logger.LogInformation($"{_serviceName}:: Best night period found: " +
-                $"{bestPeriod.Start:HH:mm}-{bestPeriod.End:HH:mm} " +
-                $"({TimeUtils.GetHoursInRange(bestPeriod):F1}h) " +
-                $"with average price {bestPeriod.AveragePrice:F4}");
+            _logger.LogInformation($"{_serviceName}:: Best night period: {best.Start:HH:mm}-{best.End:HH:mm} " +
+                                   $"({TimeUtils.GetHoursInRange(best):F1}h) avg {best.AveragePrice:F4}");
 
-            return bestPeriod;
+            return best;
         }
+
         private static bool IsContinuousPeriod(List<ParsedPrice> slots)
         {
-            if (slots.Count <= 1)
-                return true;
+            if (slots == null || slots.Count == 0)
+                return false;
 
-            for (int i = 1; i < slots.Count; i++)
+            // Ensure chronological order (caller usually provides ordered list, but we guard anyway)
+            var ordered = slots.OrderBy(s => s.DateTime).ToList();
+
+            // Each slot must be exactly 15 minutes after the previous (strict continuity, including midnight rollover)
+            for (int i = 1; i < ordered.Count; i++)
             {
-                var timeDiff = slots[i].DateTime - slots[i - 1].DateTime;
-
-                if (timeDiff != TimeSpan.FromMinutes(15) && timeDiff != TimeSpan.FromMinutes(15) - TimeSpan.FromDays(1))
+                var diff = ordered[i].DateTime - ordered[i - 1].DateTime;
+                if (diff != TimeSpan.FromMinutes(15))
                 {
-                    if (slots[i - 1].DateTime.Hour == 23 && slots[i].DateTime.Hour == 0)
-                    {
-                        var expectedNext = slots[i - 1].DateTime.AddMinutes(15);
-                        var nextDayTime = expectedNext.Hour == 0 ? expectedNext : expectedNext.AddDays(1).Date;
-
-                        if (Math.Abs((slots[i].DateTime - nextDayTime).TotalMinutes) > 1)
-                            return false;
-                    }
-                    else
-                    {
-                        return false;
-                    }
+                    return false;
                 }
             }
-
             return true;
+        }
+
+        private void TryAddPrice(ElectricityPrice price, List<ParsedPrice> list)
+        {
+            try
+            {
+                var dateTime = DateTime.ParseExact(price.date, GlobalConst.PriceTimeFormat, CultureInfo.InvariantCulture);
+                var priceValue = decimal.Parse(price.price, NumberStyles.Float, CultureInfo.InvariantCulture);
+                list.Add(new ParsedPrice(dateTime, priceValue, price));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, $"{_serviceName}:: Error parsing night price slot: date='{price.date}', price='{price.price}'");
+            }
         }
     }
 }

@@ -15,10 +15,10 @@ namespace HeatHarmony.Utils
             var today = DateTime.UtcNow;
             return time.Year == today.Year && time.Month == today.Month && time.Day == today.Day;
         }
-        public static bool IsTimeWithinHourRange(DateTime time, int hours)
+        public static bool HasBeenLongerThan(DateTime time, int hours)
         {
             DateTime now = DateTime.Now;
-            return time > now.AddHours(hours) && time <= now;
+            return time <= now.AddHours(-hours);
         }
         public static bool IsCurrentTimeInRange(LowPriceDateTimeRange? range)
         {
@@ -85,6 +85,13 @@ namespace HeatHarmony.Utils
         {
             var now = DateTime.Now;
             return new DateTime(now.Year, now.Month, now.Day, 0, 0, 0);
+        }
+
+        public static double HoursSince(DateTime time)
+        {
+            var now = DateTime.Now;
+            if (time == DateTime.MinValue) return double.MaxValue;
+            return (now - time).TotalHours;
         }
     }
 }
