@@ -363,7 +363,7 @@ namespace HeatHarmony.Workers
 
             using (_logger.BeginScope(scope))
             {
-                if (inside > 25)
+                if (inside > 26)
                 {
                     _logger.LogInformation("{service}:: Inside temp {insideTemp}C high -> conservative heating", _serviceName, inside);
                     await _oumanProvider.SetConservativeHeating();
@@ -411,28 +411,26 @@ namespace HeatHarmony.Workers
                     return;
                 }
 
-                if (outside > -5 && (TimeUtils.IsCurrentTimeInRange(nightPeriod) || (bestHours > 16 && TimeUtils.IsCurrentTimeInRange(bestPricePeriod))))
+                if (outside > -5)
                 {
-                    if (TimeUtils.IsCurrentTimeInRange(bestPricePeriod))
+                    if (bestHours > 16 && TimeUtils.IsCurrentTimeInRange(bestPricePeriod))
                     {
                         _logger.LogInformation("{service}:: Shoulder long cheap window ({hours}h) -> mid flow", _serviceName, bestHours);
                         await SetOumanAutoAndMin(40);
                         await SetTRVAuto();
-                        return;
                     }
                     else if (TimeUtils.IsCurrentTimeInRange(nightPeriod))
                     {
                         _logger.LogInformation("{service}:: Shoulder night window -> max flow", _serviceName);
                         await SetOumanAutoAndMin(55);
                         await SetTRVMaxHeating();
-                        return;
                     }
-                }
-                else if (outside > -5)
-                {
-                    _logger.LogInformation("{service}:: Shoulder outside cheap/night -> low flow", _serviceName);
-                    await SetOumanAutoAndMin(20);
-                    await SetTRVAuto();
+                    else
+                    {
+                        _logger.LogInformation("{service}:: Shoulder outside cheap/night -> low flow", _serviceName);
+                        await SetOumanAutoAndMin(20);
+                        await SetTRVAuto();
+                    }
                     return;
                 }
                 else if (outside <= -5)

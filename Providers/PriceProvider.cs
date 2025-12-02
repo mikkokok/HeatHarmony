@@ -227,7 +227,6 @@ namespace HeatHarmony.Providers
 
         private LowPriceDateTimeRange GetBestNightPeriod()
         {
-            // Night window should always be between today 22:00 and tomorrow 08:00
             var nightWindowStart = DateTime.Today.AddHours(22);          // 22:00 today
             var nightWindowEnd   = DateTime.Today.AddDays(1).AddHours(8); // 08:00 tomorrow
 
@@ -247,7 +246,6 @@ namespace HeatHarmony.Providers
 
             var combinedPrices = new List<ParsedPrice>();
 
-            // Collect today 22:00–23:45 (slots with hour >= 22)
             foreach (var price in TodayPrices)
             {
                 if (DateTime.TryParseExact(price.date, GlobalConst.PriceTimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt)
@@ -257,7 +255,6 @@ namespace HeatHarmony.Providers
                 }
             }
 
-            // Collect tomorrow 00:00–07:45 (slots with hour < 8)
             foreach (var price in TomorrowPrices)
             {
                 if (DateTime.TryParseExact(price.date, GlobalConst.PriceTimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt)
@@ -267,7 +264,6 @@ namespace HeatHarmony.Providers
                 }
             }
 
-            // Expect up to 10 hours * 4 = 40 slots; minimum search base 6h => 24 slots
             if (combinedPrices.Count < 24)
             {
                 _logger.LogWarning($"{_serviceName}:: Insufficient night price data (got {combinedPrices.Count} slots, need ≥24). Returning default 10h window.");
@@ -283,13 +279,11 @@ namespace HeatHarmony.Providers
 
         private LowPriceDateTimeRange? FindOptimalNightPeriod(List<ParsedPrice> nightPrices)
         {
-            // nightPrices already constrained to 22:00–08:00 and ordered
             var candidates = new List<LowPriceDateTimeRange>();
 
-            // Evaluate target lengths 6..10 hours (inclusive)
-            for (int targetHours = 6; targetHours <= 10; targetHours++)
+            for (int targetHours = 7; targetHours <= 10; targetHours++)
             {
-                int slotsNeeded = targetHours * 4; // 15 min resolution
+                int slotsNeeded = targetHours * 4;
                 if (nightPrices.Count < slotsNeeded)
                     break;
 
@@ -319,7 +313,6 @@ namespace HeatHarmony.Providers
                 return null;
             }
 
-            // Choose lowest average price; if tie prefer longer; then earliest start
             var best = candidates
                 .OrderBy(c => c.AveragePrice)
                 .ThenByDescending(c => TimeUtils.GetHoursInRange(c))
@@ -339,10 +332,8 @@ namespace HeatHarmony.Providers
             if (slots == null || slots.Count == 0)
                 return false;
 
-            // Ensure chronological order (caller usually provides ordered list, but we guard anyway)
             var ordered = slots.OrderBy(s => s.DateTime).ToList();
 
-            // Each slot must be exactly 15 minutes after the previous (strict continuity, including midnight rollover)
             for (int i = 1; i < ordered.Count; i++)
             {
                 var diff = ordered[i].DateTime - ordered[i - 1].DateTime;

@@ -10,7 +10,32 @@ namespace HeatHarmony.Providers
         private readonly ILogger<EMProvider> _logger = logger;
         private readonly IRequestProvider _requestProvider = requestProvider;
         public DateTime LastEnabled { get; private set; } = DateTime.Now;
-        public bool IsOverridden { get; private set; } = false;
+        private DateTime? _overrideUntil;
+        private const int _maxOverrideHours = 48;
+        public bool IsOn { get; private set; }
+
+        public bool IsOverridden
+        {
+            get
+            {
+                if (_overrideUntil is null) return false;
+                if (DateTime.Now <= _overrideUntil.Value) return true;
+                _overrideUntil = null;
+                return false;
+            }
+            private set
+            {
+                if (value)
+                {
+                    _overrideUntil = DateTime.Now.AddHours(_maxOverrideHours);
+                }
+                else
+                {
+                    _overrideUntil = null;
+                }
+            }
+        }
+
         public List<HarmonyChange> Changes { get; private set; } = [];
 
         public async Task EnableWaterHeating()
@@ -20,6 +45,7 @@ namespace HeatHarmony.Providers
                 var url = GlobalConfig.Shelly3EMUrl + "relay/0?turn=on";
                 var result = await _requestProvider.GetAsync<EMRelayResponse>(HttpClientConst.Shelly3EMClient, url)
                     ?? throw new Exception($"{_serviceName}:: EnableWaterHeating returned null");
+                IsOn = result.IsOn;
                 if (!result.IsOn)
                 {
                     _logger.LogWarning($"{_serviceName}:: EnableWaterHeating did not turn on the relay.");
@@ -36,21 +62,20 @@ namespace HeatHarmony.Providers
             }
         }
 
-        public async Task DisableWaterHeating(bool Override = false)
+        public async Task DisableWaterHeating()
         {
             try
             {
-                if (!Override)
-                {
-                    return;
-                }
                 var url = GlobalConfig.Shelly3EMUrl + "relay/0?turn=off";
                 var result = await _requestProvider.GetAsync<EMRelayResponse>(HttpClientConst.Shelly3EMClient, url)
                     ?? throw new Exception($"{_serviceName}:: DisableWaterHeating returned null");
+                IsOn = result.IsOn;
                 if (result.IsOn)
                 {
                     _logger.LogWarning($"{_serviceName}:: DisableWaterHeating did not turn off the relay.");
                 }
+                _overrideUntil = null;
+
                 LogUtils.AddChangeRecord(Changes, Provider.EM, HarmonyChangeType.DisableWaterHeating, "Water heating disabled.");
             }
             catch (Exception ex)
@@ -59,21 +84,26 @@ namespace HeatHarmony.Providers
             }
         }
 
-        public async Task OverrideEnable()
+        public async Task OverrideEnable(int? overrideHours = null)
         {
             await EnableWaterHeating();
-            IsOverridden = true;
-            LogUtils.AddChangeRecord(Changes, Provider.EM, HarmonyChangeType.OverrideEnable, "Manual override to enable water heating.");
+            var hours = overrideHours ?? _maxOverrideHours;
+            _overrideUntil = DateTime.Now.AddHours(hours);
+
+            LogUtils.AddChangeRecord(Changes, Provider.EM, HarmonyChangeType.OverrideEnable,
+                $"Manual override ON. Max duration: {hours}h (until {_overrideUntil:yyyy-MM-dd HH:mm}).");
         }
+
+        public void ClearOverride()
+        {
+            _overrideUntil = null;
+            LogUtils.AddChangeRecord(Changes, Provider.EM, HarmonyChangeType.OverrideEnable, "Override cleared.");
+        }
+
         public bool HasRunEnough()
         {
             var hasRunEnough = (DateTime.Now - LastEnabled).TotalHours >= 3;
-            if (hasRunEnough)
-            {
-                IsOverridden = false;
-            }
             return hasRunEnough;
-            
         }
 
         public bool IsRunning()
@@ -83,8 +113,10 @@ namespace HeatHarmony.Providers
                 var url = GlobalConfig.Shelly3EMUrl + "status";
                 var result = _requestProvider.GetAsync<EMStatusResponse>(HttpClientConst.Shelly3EMClient, url).Result
                     ?? throw new Exception($"{_serviceName}:: IsRunning returned null");
+                IsOn = result.relays[0].IsOn;
                 if (result.total_power > 100)
                     return true;
+
             }
             catch (Exception ex)
             {

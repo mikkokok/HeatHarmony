@@ -11,7 +11,7 @@ namespace HeatHarmony.Routes
             var emEndpoints = app.MapGroup("/em").WithTags("EmEndpoints");
             emEndpoints.MapGet("/latest", ([FromServices] EMProvider eMProvider) =>
             {
-                return Results.Ok(new { eMProvider.LastEnabled, eMProvider.IsOverridden, isRunning = eMProvider.IsRunning() });
+                return Results.Ok(new { eMProvider.LastEnabled, eMProvider.IsOverridden, isRunning = eMProvider.IsRunning(), eMProvider.IsOn });
             }).WithName("GetLatestEM");
             emEndpoints.MapGet("/status", ([FromServices] EMProvider eMProvider) =>
             {
@@ -23,13 +23,9 @@ namespace HeatHarmony.Routes
                             await eMProvider.EnableWaterHeating();
                             return Results.Ok();
                         }).WithName("EnableEMWaterHeating");
-            emEndpoints.MapPut("/disable", async ([FromServices] EMProvider eMProvider, [FromQuery(Name = "override")] bool overRide) =>
+            emEndpoints.MapPut("/disable", async ([FromServices] EMProvider eMProvider) =>
             {
-                if (eMProvider.IsOverridden && !overRide)
-                {
-                    return Results.BadRequest("Water heating is currently overridden. To disable, set the override parameter to true.");
-                }
-                await eMProvider.DisableWaterHeating(overRide);
+                await eMProvider.DisableWaterHeating();
                 return Results.Ok();
             }).WithName("DisableEMWaterHeating");
         }

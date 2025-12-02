@@ -47,5 +47,6 @@ app.MapOumanEndPoints();
 app.MapTRVEndPoints();
 app.MapHeatAutomationEndpoints();
 app.MapPriceEndPoints();
+app.MapEmEndPoints();
 
 app.Run();
