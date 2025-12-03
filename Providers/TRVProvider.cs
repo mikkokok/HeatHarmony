@@ -35,7 +35,7 @@ namespace HeatHarmony.Providers
                 for (int i = 0; i < 2; i++)
                 {
                     var updated = _devices.Where(d => d.Status == TRVStatusEnum.Ok).ToList();
-                    if (updated is null)
+                    if (updated.Count == 0)
                     {
                         break;
                     }
