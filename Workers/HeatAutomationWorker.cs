@@ -1,6 +1,7 @@
 ﻿using HeatHarmony.Utils;
 using HeatHarmony.Providers;
 using HeatHarmony.Config;
+using HeatHarmony.Models;
 
 namespace HeatHarmony.Workers
 {
