@@ -1,6 +1,7 @@
 ﻿using HeatHarmony.Config;
 using HeatHarmony.Models;
 using HeatHarmony.Utils;
+using System.Threading.Tasks;
 
 namespace HeatHarmony.Providers
 {
@@ -14,7 +15,7 @@ namespace HeatHarmony.Providers
         public DateTime? OverrideUntil;
         private const int _maxOverrideHours = 48;
         public EMOverrideMode OverrideMode = EMOverrideMode.None;
-        private readonly CancellationTokenSource _overrideCTokenSource = new();
+        private CancellationTokenSource _overrideCTokenSource = new();
         public bool IsOverrideActive => OverrideUntil is not null && DateTime.Now <= OverrideUntil.Value && OverrideMode != EMOverrideMode.None;
         public List<HarmonyChange> Changes { get; private set; } = [];
         public bool IsOverridden
@@ -41,7 +42,7 @@ namespace HeatHarmony.Providers
                 IsOn = result.IsOn;
                 if (!result.IsOn)
                 {
-                    _logger.LogWarning($"{_serviceName}:: EnableWaterHeating did not turn on the relay.");
+                    _logger.LogWarning("{service}:: EnableWaterHeating did not turn on the relay", _serviceName);
                 }
                 else
                 {
@@ -51,7 +52,7 @@ namespace HeatHarmony.Providers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"{_serviceName}:: Exception occurred while switching relay on from EM.");
+                _logger.LogError(ex, "{service}:: Exception occurred while switching relay on from EM", _serviceName);
             }
         }
 
@@ -65,7 +66,7 @@ namespace HeatHarmony.Providers
                 IsOn = result.IsOn;
                 if (result.IsOn)
                 {
-                    _logger.LogWarning($"{_serviceName}:: DisableWaterHeating did not turn off the relay.");
+                    _logger.LogWarning("{service}:: DisableWaterHeating did not turn off the relay", _serviceName);
                 }
                 OverrideUntil = null;
 
@@ -73,7 +74,7 @@ namespace HeatHarmony.Providers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"{_serviceName}:: Exception occurred while switching relay off from EM.");
+                _logger.LogError(ex, "{service}:: Exception occurred while switching relay off from EM", _serviceName);
             }
         }
 
@@ -82,12 +83,12 @@ namespace HeatHarmony.Providers
             return (DateTime.Now - LastEnabled).TotalHours >= 3;
         }
 
-        public bool IsRunning()
+        public async Task<bool> IsRunning()
         {
             try
             {
                 var url = GlobalConfig.Shelly3EMUrl + "status";
-                var result = _requestProvider.GetAsync<EMStatusResponse>(HttpClientConst.Shelly3EMClient, url).Result
+                var result = await _requestProvider.GetAsync<EMStatusResponse>(HttpClientConst.Shelly3EMClient, url)
                     ?? throw new Exception($"{_serviceName}:: IsRunning returned null");
                 IsOn = result.relays[0].IsOn;
                 if (result.total_power > 100)
@@ -95,28 +96,45 @@ namespace HeatHarmony.Providers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"{_serviceName}:: Exception occurred while checking if water heating is running.");
+                _logger.LogError(ex, "{service}:: Exception occurred while checking if water heating is running", _serviceName);
             }
-            return false;               
+            return false;
         }
+
+        private readonly object _sync = new();
 
         private void ClearOverride()
         {
-            var prev = OverrideMode;
-            OverrideMode = EMOverrideMode.None;
-            OverrideUntil = null;
-            _overrideCTokenSource.Cancel();
-            LogUtils.AddChangeRecord(Changes, Provider.EM, HarmonyChangeType.OverrideEnable, $"Override cleared (was {prev}).");
+            lock (_sync)
+            {
+                var prev = OverrideMode;
+                OverrideMode = EMOverrideMode.None;
+                OverrideUntil = null;
+                try { _overrideCTokenSource.Cancel(); } catch { }
+                _overrideCTokenSource.Dispose();
+                _overrideCTokenSource = new CancellationTokenSource();
+                _logger.LogInformation("{service}:: Override cleared (was {prev})", _serviceName, prev);
+                LogUtils.AddChangeRecord(Changes, Provider.EM, HarmonyChangeType.OverrideEnable, $"Override cleared (was {prev}).");
+            }
         }
 
         public async Task ApplyOverride(EMOverrideMode mode, int? hours)
         {
-            OverrideMode = mode;
-            var duration = hours ?? _maxOverrideHours;
-            switch (mode) { 
+            var duration = Math.Clamp(hours ?? _maxOverrideHours, 1, _maxOverrideHours);
+            lock (_sync)
+            {
+                OverrideMode = mode;
+                OverrideUntil = DateTime.Now.AddHours(duration);
+                try { _overrideCTokenSource.Cancel(); } catch { }
+                _overrideCTokenSource.Dispose();
+                _overrideCTokenSource = new CancellationTokenSource();
+            }
+
+            switch (mode)
+            {
                 case EMOverrideMode.None:
                     ClearOverride();
-                    break;
+                    return;
                 case EMOverrideMode.Disable:
                     await DisableWaterHeating();
                     break;
@@ -124,19 +142,17 @@ namespace HeatHarmony.Providers
                     await EnableWaterHeating();
                     break;
             }
-            OverrideUntil = DateTime.Now.AddHours(duration);
-            LogUtils.AddChangeRecord(Changes, Provider.EM, HarmonyChangeType.OverrideEnable, $"Override applied: {mode} for {duration} hours.");
+
+            _logger.LogInformation("{service}:: Override applied: {mode} for {hours}h until {until}", _serviceName, mode, duration, OverrideUntil);
+            LogUtils.AddChangeRecord(Changes, Provider.EM, HarmonyChangeType.OverrideEnable, $"Override applied: {mode} for {duration} hours (until {OverrideUntil}).");
+
             try
             {
                 await Task.Delay(TimeSpan.FromHours(duration), _overrideCTokenSource.Token);
             }
-            catch (OperationCanceledException) when (_overrideCTokenSource.Token.IsCancellationRequested)
+            catch (OperationCanceledException)
             {
-                _logger.LogInformation($"{_serviceName}:: Override cancelled before duration ended.");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"{_serviceName}:: Exception occurred during override wait.");
+                _logger.LogInformation("{service}:: Override cancelled early", _serviceName);
             }
             finally
             {

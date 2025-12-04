@@ -146,7 +146,7 @@ namespace HeatHarmony.Workers
             {
                 var now = DateTime.Now;
                 bool isStale = IsPriceDataStale();
-                bool isRunning = _emProvider.IsRunning();
+                bool isRunning = await _emProvider.IsRunning();
                 bool isOverridden = _emProvider.IsOverridden;
                 bool hasRunEnough = !isStale && _emProvider.HasRunEnough();
                 bool shouldEnable = !isStale && ShouldEnableWaterHeating();

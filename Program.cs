@@ -40,13 +40,14 @@ app.UseSwaggerUI(options =>
 });
 
 app.UseRouting();
-//app.UseMiddleware<ApiKeyMiddleware>();
+//app.UseMiddleware<ApiKeyMiddleware>(); // Disabled API key middleware for easier local testing
 app.UseMiddleware<ApiVersionHeaderMiddleware>();
 app.MapHeishaMonEndpoints();
 app.MapOumanEndPoints();
 app.MapTRVEndPoints();
 app.MapHeatAutomationEndpoints();
-app.MapPriceEndPoints();
+app.MapPriceEndpoints();
 app.MapEmEndPoints();
+app.MapAppStatusEndpoints();
 
 app.Run();

@@ -105,9 +105,9 @@ namespace HeatHarmony.Providers
                     }
                     catch (Exception ex) when (attempt < maxRetries && (ex is HttpRequestException || ex is TaskCanceledException || ex is TimeoutException))
                     {
-                        var delayMs = baseDelaySeconds * (int)Math.Pow(2, attempt - 1); // Exponential backoff: 10s, 20s, 40s
-                        _logger.LogWarning(ex, $"{_serviceName}:: SetAutoTemp failed for {trv.Name} on attempt {attempt}/{maxRetries}. Retrying in {delayMs}ms...");
-                        await Task.Delay(delayMs);
+                        var delaySeconds = baseDelaySeconds * (int)Math.Pow(2, attempt - 1); // Exponential backoff: 10s, 20s, 40s
+                        _logger.LogWarning(ex, $"{_serviceName}:: SetAutoTemp failed for {trv.Name} on attempt {attempt}/{maxRetries}. Retrying in {delaySeconds}ms...");
+                        await Task.Delay(delaySeconds);
                     }
                     catch (Exception ex)
                     {
@@ -140,7 +140,6 @@ namespace HeatHarmony.Providers
             {
                 var result = await _requestProvider.GetAsync<TRVStatusResponse>(HttpClientConst.ShellyClient, url)
                     ?? throw new Exception($"{_serviceName}:: InitDevices returned null for {device.Name}");
-                device.UpdatedAt = DateTime.Now;
                 device.BatteryLevel = result.bat.value;
                 device.Status = TRVStatusEnum.Ok;
                 device.LatestLevel = result.thermostats.First().pos;
@@ -149,9 +148,10 @@ namespace HeatHarmony.Providers
             catch (Exception ex)
             {
                 _logger.LogCritical(ex, $"{_serviceName}:: UpdateDeviceStatus failed for {device.Name} at {url}");
+                device.Status = TRVStatusEnum.Error;
+                
             }
             device.UpdatedAt = DateTime.Now;
-            device.Status = TRVStatusEnum.Error;
         }
     }
 }

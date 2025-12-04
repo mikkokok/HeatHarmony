@@ -1,6 +1,7 @@
 ﻿using HeatHarmony.Models;
 using HeatHarmony.Providers;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HeatHarmony.Routes
@@ -9,45 +10,85 @@ namespace HeatHarmony.Routes
     {
         public static void MapEmEndPoints(this WebApplication app)
         {
-            var emEndpoints = app.MapGroup("/em").WithTags("EmEndpoints");
-            emEndpoints.MapGet("/latest", ([FromServices] EMProvider eMProvider) =>
-            {
-                return Results.Ok(new { eMProvider.LastEnabled, eMProvider.IsOverridden, isRunning = eMProvider.IsRunning(), eMProvider.IsOn });
-            }).WithName("GetLatestEM");
-            emEndpoints.MapGet("/changes", ([FromServices] EMProvider eMProvider) =>
-            {
-                return Results.Ok(eMProvider.Changes);
-            }).WithName("GetEMChanges");
+            var em = app.MapGroup("/em")
+                        .WithTags("EmEndpoints");
 
-            emEndpoints.MapPut("/enable", async ([FromServices] EMProvider eMProvider) =>
-                        {
-                            await eMProvider.EnableWaterHeating();
-                            return Results.Ok();
-                        }).WithName("EnableEMWaterHeating");
-            emEndpoints.MapPut("/disable", async ([FromServices] EMProvider eMProvider) =>
+            em.MapGet("/latest", async ([FromServices] EMProvider emProvider) =>
             {
-                await eMProvider.DisableWaterHeating();
+                var isRunning = await emProvider.IsRunning();
+                return Results.Ok(new
+                {
+                    emProvider.LastEnabled,
+                    emProvider.IsOverridden,
+                    isRunning,
+                    emProvider.IsOn
+                });
+            })
+            .WithName("GetLatestEM")
+            .Produces(StatusCodes.Status200OK);
+
+            em.MapGet("/changes", ([FromServices] EMProvider emProvider) =>
+            {
+                return Results.Ok(emProvider.Changes);
+            })
+            .WithName("GetEMChanges")
+            .Produces<List<HarmonyChange>>(StatusCodes.Status200OK);
+
+            em.MapPut("/enable", async ([FromServices] EMProvider emProvider) =>
+            {
+                await emProvider.EnableWaterHeating();
+                return Results.Accepted();
+            })
+            .WithName("EnableEMWaterHeating")
+            .Produces(StatusCodes.Status202Accepted);
+
+            em.MapPut("/disable", async ([FromServices] EMProvider emProvider) =>
+            {
+                await emProvider.DisableWaterHeating();
+                return Results.Accepted();
+            })
+            .WithName("DisableEMWaterHeating")
+            .Produces(StatusCodes.Status202Accepted);
+
+            em.MapDelete("/override/delete", async ([FromServices] EMProvider emProvider) =>
+            {
+                await emProvider.ApplyOverride(EMOverrideMode.None, 0);
                 return Results.Ok();
-            }).WithName("DisableEMWaterHeating");
-            emEndpoints.MapDelete("/override/delete", async ([FromServices] EMProvider eMProvider) =>
+            })
+            .WithName("ClearEMOverride")
+            .Produces(StatusCodes.Status200OK);
+
+            em.MapPut("/override/enable/{hours?}", async ([FromServices] EMProvider emProvider, int? hours) =>
             {
-                await eMProvider.ApplyOverride(EMOverrideMode.None, 0);
-                return Results.Ok();
-            }).WithName("ClearEMOverride");
-            emEndpoints.MapPut("/override/enable/{hours?}", async ([FromServices] EMProvider eMProvider, int? hours) =>
+                if (hours is int h && h <= 0) return Results.BadRequest(new { message = "hours must be > 0" });
+                await emProvider.ApplyOverride(EMOverrideMode.Enable, hours);
+                return Results.Accepted(value: new { mode = EMOverrideMode.Enable, hours });
+            })
+            .WithName("OverrideEMEnableWaterHeating")
+            .Produces(StatusCodes.Status202Accepted)
+            .Produces(StatusCodes.Status400BadRequest);
+
+            em.MapPut("/override/disable/{hours?}", async ([FromServices] EMProvider emProvider, int? hours) =>
             {
-                await eMProvider.ApplyOverride(EMOverrideMode.Enable, hours);
-                return Results.Ok();
-            }).WithName("OverrideEMEnableWaterHeating");
-            emEndpoints.MapPut("/override/disable/{hours?}", async ([FromServices] EMProvider eMProvider, int? hours) =>
+                if (hours is int h && h <= 0) return Results.BadRequest(new { message = "hours must be > 0" });
+                await emProvider.ApplyOverride(EMOverrideMode.Disable, hours);
+                return Results.Accepted(value: new { mode = EMOverrideMode.Disable, hours });
+            })
+            .WithName("OverrideEMDisableWaterHeating")
+            .Produces(StatusCodes.Status202Accepted)
+            .Produces(StatusCodes.Status400BadRequest);
+
+            em.MapGet("/override/status", ([FromServices] EMProvider emProvider) =>
             {
-                await eMProvider.ApplyOverride(EMOverrideMode.Disable, hours);
-                return Results.Ok();
-            }).WithName("OverrideEMDisableWaterHeating");
-            emEndpoints.MapGet("/override/status", ([FromServices] EMProvider eMProvider) =>
-            {
-                return Results.Ok(new { eMProvider.OverrideMode, eMProvider.IsOverrideActive, eMProvider.OverrideUntil });
-            }).WithName("GetEMOverrideStatus");
+                return Results.Ok(new
+                {
+                    emProvider.OverrideMode,
+                    emProvider.IsOverrideActive,
+                    emProvider.OverrideUntil
+                });
+            })
+            .WithName("GetEMOverrideStatus")
+            .Produces(StatusCodes.Status200OK);
         }
     }
 }
