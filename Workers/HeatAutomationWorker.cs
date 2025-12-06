@@ -93,45 +93,53 @@ namespace HeatHarmony.Workers
         {
             while (!stoppingToken.IsCancellationRequested)
             {
-                var scope = new
+                try
                 {
-                    sync_cycleUtc = DateTime.UtcNow,
-                    sync_targetTemp = _heishaMonProvider.MainTargetTemp,
-                    sync_flowDemand = _oumanProvider.LatestFlowDemand
-                };
-                using (_logger.BeginScope(scope))
-                {
-                    if (_heishaMonProvider.MainTargetTemp == 0 || _oumanProvider.LatestFlowDemand == 0.0)
+                    var scope = new
                     {
-                        if (DateTime.UtcNow - _startTime > TimeSpan.FromMinutes(GlobalConfig.HeatAutomationConfig.MaxInitializationMinutes))
+                        sync_cycleUtc = DateTime.UtcNow,
+                        sync_targetTemp = _heishaMonProvider.MainTargetTemp,
+                        sync_flowDemand = _oumanProvider.LatestFlowDemand
+                    };
+                    using (_logger.BeginScope(scope))
+                    {
+                        if (_heishaMonProvider.MainTargetTemp == 0 || _oumanProvider.LatestFlowDemand == 0.0)
                         {
-                            _logger.LogError("{service}:: Providers failed to initialize within {minutes} minutes", _serviceName, GlobalConfig.HeatAutomationConfig.MaxInitializationMinutes);
-                            throw new InvalidOperationException("Provider initialization timeout");
+                            if (DateTime.UtcNow - _startTime > TimeSpan.FromMinutes(GlobalConfig.HeatAutomationConfig.MaxInitializationMinutes))
+                            {
+                                _logger.LogError("{service}:: Providers failed to initialize within {minutes} minutes", _serviceName, GlobalConfig.HeatAutomationConfig.MaxInitializationMinutes);
+                                throw new InvalidOperationException("Provider initialization timeout");
+                            }
+
+                            _logger.LogWarning("{service}:: Waiting for provider initialization...", _serviceName);
+                            await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
+                            continue;
                         }
 
-                        _logger.LogWarning("{service}:: Waiting for provider initialization...", _serviceName);
+                        var latestOuman = (int)Math.Round(_oumanProvider.LatestFlowDemand, 0, MidpointRounding.AwayFromZero);
+                        var latestOumanWithHeishaAdjustment = latestOuman + GlobalConfig.HeatAutomationConfig.HeatAddition;
+                        var tolerance = 1;
+
+                        if (Math.Abs(_heishaMonProvider.MainTargetTemp - latestOumanWithHeishaAdjustment) > tolerance)
+                        {
+                            var newTarget = Math.Clamp(latestOumanWithHeishaAdjustment, 20, 65);
+                            _logger.LogInformation("{service}:: Adjusting target from {old} to {new}", _serviceName, _heishaMonProvider.MainTargetTemp, newTarget);
+                            await _heishaMonProvider.SetTargetTemperature(newTarget);
+                        }
+
+                        _logger.LogInformation("{service}:: Sync status - HeishaMon: {heisha}C, Ouman: {ouman}C, Adjustment: {adj}C",
+                            _serviceName,
+                            _heishaMonProvider.MainTargetTemp,
+                            _oumanProvider.LatestFlowDemand,
+                            GlobalConfig.HeatAutomationConfig.HeatAddition);
+
                         await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
-                        continue;
                     }
-
-                    var latestOuman = (int)Math.Round(_oumanProvider.LatestFlowDemand, 0, MidpointRounding.AwayFromZero);
-                    var latestOumanWithHeishaAdjustment = latestOuman + GlobalConfig.HeatAutomationConfig.HeatAddition;
-                    var tolerance = 1;
-
-                    if (Math.Abs(_heishaMonProvider.MainTargetTemp - latestOumanWithHeishaAdjustment) > tolerance)
-                    {
-                        var newTarget = Math.Clamp(latestOumanWithHeishaAdjustment, 20, 65);
-                        _logger.LogInformation("{service}:: Adjusting target from {old} to {new}", _serviceName, _heishaMonProvider.MainTargetTemp, newTarget);
-                        await _heishaMonProvider.SetTargetTemperature(newTarget);
-                    }
-
-                    _logger.LogInformation("{service}:: Sync status - HeishaMon: {heisha}C, Ouman: {ouman}C, Adjustment: {adj}C",
-                        _serviceName,
-                        _heishaMonProvider.MainTargetTemp,
-                        _oumanProvider.LatestFlowDemand,
-                        GlobalConfig.HeatAutomationConfig.HeatAddition);
-
-                    await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "{service}:: Error in SyncOumanAndHeishamon", _serviceName);
+                    await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
                 }
             }
         }

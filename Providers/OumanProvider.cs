@@ -24,38 +24,48 @@ namespace HeatHarmony.Providers
             _logger = logger;
             _requestProvider = requestProvider;
             OumanTask = GetLatestReadings();
-
         }
+
         private async Task GetLatestReadings()
         {
             while (true)
             {
-                var url = GlobalConfig.OumanConfig!.Url + "request?S_275_85;S_227_85;S_54_85;S_81_85;S_59_85;S_284_85";
-                var result = await _requestProvider.GetStringAsync(HttpClientConst.OumanClient, url);
-                if (result != null)
+                try
                 {
-                    var readings = result.Split("?")[1];
-                    SetLatest(readings);
+                    var url = GlobalConfig.OumanConfig!.Url + "request?S_275_85;S_227_85;S_54_85;S_81_85;S_59_85;S_284_85";
+                    var result = await _requestProvider.GetStringAsync(HttpClientConst.OumanClient, url);
+                    if (result != null)
+                    {
+                        var readings = result.Split("?")[1];
+                        SetLatest(readings);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("{service}:: GetLatestReadings returned null", _serviceName);
+                    }
+                    await Task.Delay(TimeSpan.FromMinutes(5));
                 }
-                else
+                catch (Exception ex)
                 {
-                    _logger.LogWarning($"{_serviceName}:: GetLatestReadings returned null");
+                    _logger.LogError(ex, "{service}:: GetLatestReadings exception", _serviceName);
+                    await Task.Delay(TimeSpan.FromMinutes(1));
                 }
-                await Task.Delay(TimeSpan.FromMinutes(5));
             }
         }
+
         public async Task SetMinFlowTemp(int newTemp)
         {
             await Login();
             var url = GlobalConfig.OumanConfig!.Url + "update?@_S_54_85=" + newTemp + ";";
             var result = await _requestProvider.GetStringAsync(HttpClientConst.OumanClient, url);
-            if (result != null) {
+            if (result != null)
+            {
                 var reading = result.Split("?")[1].Split("=")[1].Split(";")[0];
                 LatestMinFlowTemp = double.Parse(reading);
                 LogUtils.AddChangeRecord(Changes, Provider.Ouman, HarmonyChangeType.SetMinFlowTemp, $"New temp {newTemp}");
             }
-
         }
+
         public async Task SetInsideTemp(double newTemp)
         {
             await Login();
@@ -68,6 +78,7 @@ namespace HeatHarmony.Providers
                 LogUtils.AddChangeRecord(Changes, Provider.Ouman, HarmonyChangeType.SetInsideTemp, $"New temp {newTemp}");
             }
         }
+
         public async Task SetMaximumFlow()
         {
             await Login();
@@ -84,6 +95,7 @@ namespace HeatHarmony.Providers
             }
             LogUtils.AddChangeRecord(Changes, Provider.Ouman, HarmonyChangeType.SetMaximumFlow);
         }
+
         public async Task SetAutoDriveOn()
         {
             if (AutoTemp)
@@ -103,7 +115,7 @@ namespace HeatHarmony.Providers
             await SetAutoDriveOn();
             await SetInsideTemp(20);
             await SetMinFlowTemp(20);
-            LogUtils.AddChangeRecord(Changes,Provider.Ouman, HarmonyChangeType.SetDefault);
+            LogUtils.AddChangeRecord(Changes, Provider.Ouman, HarmonyChangeType.SetDefault);
         }
 
         public async Task SetConservativeHeating()
@@ -111,6 +123,7 @@ namespace HeatHarmony.Providers
             await SetAutoDriveOn();
             await SetMinFlowTemp(20);
         }
+
         private void SetLatest(string kvPair)
         {
             var pairs = kvPair.Split(";");
@@ -144,11 +157,12 @@ namespace HeatHarmony.Providers
                         LatestInsideTemp = double.Parse(value);
                         break;
                     default:
-                        _logger.LogWarning($"{_serviceName}:: SetLatest unknown code {code}");
+                        _logger.LogWarning("{service}:: SetLatest unknown code {code}", _serviceName, code);
                         break;
                 }
             }
         }
+
         private async Task Login()
         {
             var url = GlobalConfig.OumanConfig!.Url + "login?uid=" + GlobalConfig.OumanConfig!.Username + ";pwd=" + GlobalConfig.OumanConfig!.Password;
