@@ -5,6 +5,7 @@ using HeatHarmony.Routes.Middlewares;
 using HeatHarmony.Workers;
 using Microsoft.AspNetCore.Routing.Constraints;
 using HeatHarmony.Extensions;
+using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 
@@ -18,7 +19,26 @@ GlobalConfig.OumanConfig = builder.Configuration.GetRequiredSection("Ouman").Get
 
 builder.Services.Configure<RouteOptions>(options => options.SetParameterPolicy<RegexInlineRouteConstraint>("regex"));
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new()
+    {
+        Title = "HeatHarmony API",
+        Version = "v1",
+        Description = "API collection for HeatHarmony services",
+    });
+    options.AddSecurityDefinition("ApiKey", new OpenApiSecurityScheme
+    {
+        In = ParameterLocation.Header,
+        Description = "API Key needed to access the endpoints",
+        Name = GlobalConst.ApiKeyHeaderName,
+        Type = SecuritySchemeType.ApiKey
+    });
+    options.AddSecurityRequirement((document) => new OpenApiSecurityRequirement()
+    {
+        [new OpenApiSecuritySchemeReference("ApiKey", document)] = []
+    });
+});
 
 builder.Services.AddHostedService<HeatAutomationWorker>();
 builder.Services.AddSingleton<IRequestProvider, RequestProvider>();
@@ -40,7 +60,7 @@ app.UseSwaggerUI(options =>
 });
 
 app.UseRouting();
-//app.UseMiddleware<ApiKeyMiddleware>(); // Disabled API key middleware for easier local testing
+app.UseMiddleware<ApiKeyMiddleware>();
 app.UseMiddleware<ApiVersionHeaderMiddleware>();
 app.MapHeishaMonEndpoints();
 app.MapOumanEndPoints();

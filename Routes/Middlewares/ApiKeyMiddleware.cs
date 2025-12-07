@@ -5,9 +5,20 @@ namespace HeatHarmony.Routes.Middlewares
     public class ApiKeyMiddleware(RequestDelegate next)
     {
         private readonly RequestDelegate _next = next;
+        private readonly List<string> byPassedPaths =
+        [
+            "/appstatus/ping",
+            "/appstatus/uptime"
+        ];
 
         public async Task InvokeAsync(HttpContext context)
         {
+            if (byPassedPaths.Contains(context.Request.Path))
+            {
+                await _next(context);
+                return;
+            }
+
             if (!context.Request.Headers.TryGetValue(GlobalConst.ApiKeyHeaderName, out var extractedApiKey))
             {
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
