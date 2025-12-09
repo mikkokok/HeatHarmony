@@ -1,10 +1,11 @@
 using HeatHarmony.Config;
+using HeatHarmony.Extensions;
 using HeatHarmony.Providers;
 using HeatHarmony.Routes;
+using HeatHarmony.Routes.Filters;
 using HeatHarmony.Routes.Middlewares;
 using HeatHarmony.Workers;
 using Microsoft.AspNetCore.Routing.Constraints;
-using HeatHarmony.Extensions;
 using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateSlimBuilder(args);
@@ -38,6 +39,7 @@ builder.Services.AddSwaggerGen(options =>
     {
         [new OpenApiSecuritySchemeReference("ApiKey", document)] = []
     });
+    options.OperationFilter<AppStatusFilter>();
 });
 
 builder.Services.AddHostedService<HeatAutomationWorker>();
