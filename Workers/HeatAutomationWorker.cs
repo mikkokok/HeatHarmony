@@ -425,8 +425,9 @@ namespace HeatHarmony.Workers
                     if (bestHours > 16 && TimeUtils.IsCurrentTimeInRange(bestPricePeriod))
                     {
                         _logger.LogInformation("{service}:: Shoulder long cheap window ({hours}h) -> mid flow", _serviceName, bestHours);
-                        await SetOumanAutoAndMin(40);
-                        await SetTRVAuto();
+                        await _oumanProvider.SetMinFlowTemp(30);
+                        await _oumanProvider.SetAutoDriveOn();
+                        await _oumanProvider.SetInsideTemp(22);
                     }
                     else if (TimeUtils.IsCurrentTimeInRange(nightPeriod))
                     {
