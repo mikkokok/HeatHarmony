@@ -7,6 +7,7 @@ namespace HeatHarmony.Providers
     {
         private readonly string _serviceName = nameof(HeatAutomationWorkerProvider);
         private readonly object _sync = new();
+        public readonly DateTime StartupLocal = DateTime.Now;
 
         public bool overRide = false;
         public double overRideTemp = 20;

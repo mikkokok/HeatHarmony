@@ -67,14 +67,12 @@ namespace HeatHarmony.Routes
 
             heat.MapPost("/override", ([FromServices] HeatAutomationWorkerProvider provider, [FromBody] TemperatureOverride request) =>
             {
-                // Basic validation
                 if (request.Hours <= 0 || request.Hours > 48)
                     return Results.BadRequest(new { message = "Hours must be between 1 and 48." });
 
                 if (request.Temperature < 10 || request.Temperature > 30)
                     return Results.BadRequest(new { message = "Temperature must be between 10°C and 30°C." });
 
-                // Prevent accidental double overrides unless explicitly requested
                 if (!request.OverRidePrevious && provider.overRide)
                     return Results.Conflict(new { message = "Override already in progress." });
 

@@ -1,9 +1,10 @@
-﻿namespace HeatHarmony.Routes
+﻿using HeatHarmony.Providers;
+using Microsoft.AspNetCore.Mvc;
+
+namespace HeatHarmony.Routes
 {
     public partial class ApiMapper
     {
-        private static readonly DateTime StartupLocal = DateTime.Now;
-
         public static void MapAppStatusEndpoints(this WebApplication app)
         {
             var appStatus = app.MapGroup("/appstatus")
@@ -16,22 +17,22 @@
             .WithName("GetAppHealthStatus")
             .Produces(StatusCodes.Status200OK);
 
-            appStatus.MapGet("/uptime", () =>
+            appStatus.MapGet("/uptime",  ([FromServices] HeatAutomationWorkerProvider provider) =>
             {
                 var now = DateTime.Now;
-                var uptime = now - StartupLocal;
+                var uptime = now - provider.StartupLocal;
 
-                string isoDuration = $"P{uptime.Days}DT{uptime.Hours}H{uptime.Minutes}M{uptime.Seconds}S";
+                string duration = $"Days: {uptime.Days} Hours: {uptime.Hours} Minutes: {uptime.Minutes} Seconds: {uptime.Seconds}";
 
                 var payload = new
                 {
-                    startupTime = StartupLocal,
+                    startupTime = provider.StartupLocal,
                     serverTime = now,
                     uptime = new
                     {
                         ticks = uptime.Ticks,
                         totalSeconds = uptime.TotalSeconds,
-                        iso8601 = isoDuration
+                        duration
                     }
                 };
 
