@@ -6,6 +6,7 @@
         HeishaMon,
         TRV,
         Heisha,
-        EM
+        EM,
+        OilBurner
     }
 }

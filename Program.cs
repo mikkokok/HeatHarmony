@@ -17,6 +17,7 @@ GlobalConfig.Shelly3EMUrl = builder.Configuration["Shelly3EMUrl"];
 GlobalConfig.ApiDocumentConfig = builder.Configuration.GetRequiredSection("ApiDocument").Get<GlobalConfig.ApiDocument>()!;
 GlobalConfig.ShellyTRVConfig = builder.Configuration.GetRequiredSection("ShellyTRV").Get<List<GlobalConfig.ShellyTRV>>();
 GlobalConfig.OumanConfig = builder.Configuration.GetRequiredSection("Ouman").Get<GlobalConfig.Ouman>();
+GlobalConfig.OilBurnerShellyUrl = builder.Configuration["OilBurnerShellyUrl"];
 
 builder.Services.Configure<RouteOptions>(options => options.SetParameterPolicy<RegexInlineRouteConstraint>("regex"));
 builder.Services.AddEndpointsApiExplorer();
@@ -49,6 +50,7 @@ builder.Services.AddSingleton<OumanProvider>();
 builder.Services.AddSingleton<PriceProvider>();
 builder.Services.AddSingleton<TRVProvider>();
 builder.Services.AddSingleton<EMProvider>(); 
+builder.Services.AddSingleton<OilBurnerProvider>();
 builder.Services.AddSingleton<HeatAutomationWorkerProvider>();
 
 builder.AddHttpClients();
