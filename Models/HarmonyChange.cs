@@ -1,6 +1,6 @@
 ﻿namespace HeatHarmony.Models
 {
-    public class HarmonyChange
+    public sealed class HarmonyChange
     {
         public DateTime Time { get; set; }
         public Provider Provider { get; set; }
@@ -20,6 +20,8 @@
         SetDefault,
         SetConservativeHeating,
         OverrideEnable,
-        SetTargetTemp
+        SetTargetTemp,
+        OilBurnerEnable,
+        OilBurnerDisable
     }
 }

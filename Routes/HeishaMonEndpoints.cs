@@ -49,7 +49,7 @@ namespace HeatHarmony.Routes
             .WithName("GetHeishaMonProviderStatus")
             .Produces(StatusCodes.Status200OK);
 
-            heisha.MapPut("/target/{temperature}", async ([FromServices] HeishaMonProvider provider, int temperature) =>
+            heisha.MapPost("/target/{temperature}", async ([FromServices] HeishaMonProvider provider, int temperature) =>
             {
                 if (temperature < 20 || temperature > 55)
                 {

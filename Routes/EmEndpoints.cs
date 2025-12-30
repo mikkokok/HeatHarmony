@@ -34,7 +34,7 @@ namespace HeatHarmony.Routes
             .WithName("GetEMChanges")
             .Produces<List<HarmonyChange>>(StatusCodes.Status200OK);
 
-            em.MapPut("/enable", async ([FromServices] EMProvider emProvider) =>
+            em.MapPost("/enable", async ([FromServices] EMProvider emProvider) =>
             {
                 await emProvider.EnableWaterHeating();
                 return Results.Accepted();
@@ -42,7 +42,7 @@ namespace HeatHarmony.Routes
             .WithName("EnableEMWaterHeating")
             .Produces(StatusCodes.Status202Accepted);
 
-            em.MapPut("/disable", async ([FromServices] EMProvider emProvider) =>
+            em.MapPost("/disable", async ([FromServices] EMProvider emProvider) =>
             {
                 await emProvider.DisableWaterHeating();
                 return Results.Accepted();
@@ -58,7 +58,7 @@ namespace HeatHarmony.Routes
             .WithName("ClearEMOverride")
             .Produces(StatusCodes.Status200OK);
 
-            em.MapPut("/override/enable/{hours?}", async ([FromServices] EMProvider emProvider, int? hours) =>
+            em.MapPost("/override/enable/{hours?}", async ([FromServices] EMProvider emProvider, int? hours) =>
             {
                 if (hours is int h && h <= 0) return Results.BadRequest(new { message = "hours must be > 0" });
                 await emProvider.ApplyOverride(EMOverrideMode.Enable, hours);
@@ -68,7 +68,7 @@ namespace HeatHarmony.Routes
             .Produces(StatusCodes.Status202Accepted)
             .Produces(StatusCodes.Status400BadRequest);
 
-            em.MapPut("/override/disable/{hours?}", async ([FromServices] EMProvider emProvider, int? hours) =>
+            em.MapPost("/override/disable/{hours?}", async ([FromServices] EMProvider emProvider, int? hours) =>
             {
                 if (hours is int h && h <= 0) return Results.BadRequest(new { message = "hours must be > 0" });
                 await emProvider.ApplyOverride(EMOverrideMode.Disable, hours);

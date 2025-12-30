@@ -15,10 +15,11 @@ namespace HeatHarmony.Workers
         private readonly PriceProvider _priceProvider;
         private readonly EMProvider _emProvider;
         private readonly TRVProvider _tRVProvider;
+        private readonly OilBurnerProvider _oilBurnerProvider;
         private readonly DateTime _startTime = DateTime.UtcNow;
 
         public HeatAutomationWorker(ILogger<HeatAutomationWorker> logger, HeishaMonProvider heishaMonProvider,
-            OumanProvider oumanProvider, HeatAutomationWorkerProvider heatAutomationWorkerProvider, PriceProvider priceProvider, EMProvider eMProvider, TRVProvider tRVProvider)
+            OumanProvider oumanProvider, HeatAutomationWorkerProvider heatAutomationWorkerProvider, PriceProvider priceProvider, EMProvider eMProvider, TRVProvider tRVProvider, OilBurnerProvider oilBurnerProvider)
         {
             _serviceName = nameof(HeatAutomationWorker);
             _logger = logger;
@@ -28,6 +29,7 @@ namespace HeatHarmony.Workers
             _priceProvider = priceProvider;
             _emProvider = eMProvider;
             _tRVProvider = tRVProvider;
+            _oilBurnerProvider = oilBurnerProvider;
             _logger.LogInformation("{service}:: Initialized successfully", _serviceName);
         }
 
@@ -358,7 +360,8 @@ namespace HeatHarmony.Workers
             var inside = _oumanProvider.LatestInsideTemp;
             var nightPeriod = _priceProvider.NightPeriodTimes;
             var nightHours = TimeUtils.GetHoursInRange(nightPeriod);
-            var bestHours = bestPricePeriod != null ? TimeUtils.GetHoursInRange(bestPricePeriod) : 0;
+            var bestHours = bestPricePeriod != null ? TimeUtils.GetHoursInRange(bestPricePeriod) : 0;;
+            var isOilburnerActive = _oilBurnerProvider.IsEnabled;
 
             var scope = new
             {
@@ -367,7 +370,8 @@ namespace HeatHarmony.Workers
                 inside_bestPeriodHours = bestHours,
                 inside_nightPeriodHours = nightHours,
                 inside_outsideTemp = outside,
-                inside_insideTemp = inside
+                inside_insideTemp = inside,
+                inside_oilBurnerActive = isOilburnerActive
             };
 
             using (_logger.BeginScope(scope))
@@ -378,6 +382,14 @@ namespace HeatHarmony.Workers
                     await _oumanProvider.SetConservativeHeating();
                     await SetTRVAuto();
                     return;
+                }
+
+                if (isOilburnerActive)
+                {
+                    _logger.LogInformation("{service}:: Oil burner is active", _serviceName);
+                    await _oumanProvider.SetInsideTemp(21);
+                    await _oumanProvider.SetMinFlowTemp(30);
+                    await SetTRVAuto();
                 }
 
                 if (!isRankDataValid)
@@ -514,6 +526,7 @@ namespace HeatHarmony.Workers
             _logger.LogDebug("{service}:: SetOumanAutoAndMin({min})", _serviceName, newMinTemp);
             await _oumanProvider.SetAutoDriveOn();
             await _oumanProvider.SetMinFlowTemp(newMinTemp);
+            await _oumanProvider.SetInsideTemp(20);
         }
 
         private async Task SetOumanAutoAndInside(int newInsideTemp)

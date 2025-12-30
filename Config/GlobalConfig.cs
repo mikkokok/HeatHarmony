@@ -8,6 +8,7 @@ namespace HeatHarmony.Config
         public static string? HeishaUrl { get; set; }
         public static string? PricesUrl { get; set; }
         public static string? Shelly3EMUrl { get; set; }
+        public static string? OilBurnerShellyUrl { get; set; }
         public static ApiDocument? ApiDocumentConfig { get; set; }
         public static List<ShellyTRV>? ShellyTRVConfig { get; set; }
         public static Ouman? OumanConfig { get; set; }
