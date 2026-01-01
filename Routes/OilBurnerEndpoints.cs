@@ -1,4 +1,5 @@
-﻿using HeatHarmony.Models;
+﻿using HeatHarmony.DTO;
+using HeatHarmony.Models;
 using HeatHarmony.Providers;
 using Microsoft.AspNetCore.Mvc;
 
@@ -10,22 +11,30 @@ namespace HeatHarmony.Routes
         {
             var oilBurner = app.MapGroup("/oilburner")
                              .WithTags("OilBurnerEndpoints");
+
             oilBurner.MapGet("/latest", ([FromServices] OilBurnerProvider oilBurnerProvider) =>
             {
-                var isRunning = oilBurnerProvider.IsEnabled;
-                return Results.Ok(new
+                var response = new OilBurnerLatestResponse
                 {
-                    isRunning,
-                });
+                    IsRunning = oilBurnerProvider.IsEnabled,
+                };
+
+                return Results.Ok(response);
             })
             .WithName("GetLatestOilBurner")
-            .Produces(StatusCodes.Status200OK);
+            .Produces<OilBurnerLatestResponse>(StatusCodes.Status200OK);
+
             oilBurner.MapGet("/changes", ([FromServices] OilBurnerProvider oilBurnerProvider) =>
             {
-                return Results.Ok(oilBurnerProvider.Changes);
+                var response = new OilBurnerChangesResponse
+                {
+                    Changes = oilBurnerProvider.Changes
+                };
+
+                return Results.Ok(response);
             })
             .WithName("GetOilBurnerChanges")
-            .Produces<List<HarmonyChange>>(StatusCodes.Status200OK);
+            .Produces<OilBurnerChangesResponse>(StatusCodes.Status200OK);
 
             oilBurner.MapPost("/enable", async ([FromServices] OilBurnerProvider oilBurnerProvider) =>
             {
@@ -34,6 +43,7 @@ namespace HeatHarmony.Routes
             })
             .WithName("EnableOilBurner")
             .Produces(StatusCodes.Status202Accepted);
+
             oilBurner.MapPost("/disable", async ([FromServices] OilBurnerProvider oilBurnerProvider) =>
             {
                 await oilBurnerProvider.SetOilBurnerStatus(false);

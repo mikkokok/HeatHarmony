@@ -1,6 +1,6 @@
-﻿using HeatHarmony.Models;
+﻿using HeatHarmony.DTO;
+using HeatHarmony.Models;
 using HeatHarmony.Providers;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HeatHarmony.Routes
@@ -14,97 +14,112 @@ namespace HeatHarmony.Routes
 
             heat.MapGet("/status", ([FromServices] HeatAutomationWorkerProvider provider) =>
             {
-                return Results.Ok(new
+                var response = new HeatAutomationStatusResponse
                 {
-                    isWorkerRunning = provider.IsWorkerRunning,
-                    serverTime = DateTime.Now
-                });
+                    IsWorkerRunning = provider.IsWorkerRunning,
+                    ServerTime = DateTime.Now
+                };
+
+                return Results.Ok(response);
             })
             .WithName("GetHeatAutomationStatus")
-            .Produces(StatusCodes.Status200OK);
+            .Produces<HeatAutomationStatusResponse>(StatusCodes.Status200OK);
 
             heat.MapGet("/tasks", ([FromServices] HeatAutomationWorkerProvider provider) =>
             {
                 string TaskStatus(Task? t) => t?.Status.ToString() ?? "NotStarted";
                 string[] TaskErrors(Task? t)
-                    => (t?.Exception?.Message is { } msg) ? new[] { msg } : Array.Empty<string>();
+                    => (t?.Exception?.Message is { } msg) ? [msg] : [];
 
-                return Results.Ok(new
+                var response = new HeatAutomationTasksResponse
                 {
-                    oumanAndHeishamonSync = new
+                    OumanAndHeishamonSync = new HeatAutomationTaskDetails
                     {
-                        status = TaskStatus(provider.OumanAndHeishamonSyncTask),
-                        errors = TaskErrors(provider.OumanAndHeishamonSyncTask)
+                        Status = TaskStatus(provider.OumanAndHeishamonSyncTask),
+                        Errors = TaskErrors(provider.OumanAndHeishamonSyncTask)
                     },
-                    setUseWaterBasedOnPrice = new
+                    SetUseWaterBasedOnPrice = new HeatAutomationTaskDetails
                     {
-                        status = TaskStatus(provider.SetUseWaterBasedOnPriceTask),
-                        errors = TaskErrors(provider.SetUseWaterBasedOnPriceTask)
+                        Status = TaskStatus(provider.SetUseWaterBasedOnPriceTask),
+                        Errors = TaskErrors(provider.SetUseWaterBasedOnPriceTask)
                     },
-                    setInsideTempBasedOnPrice = new
+                    SetInsideTempBasedOnPrice = new HeatAutomationTaskDetails
                     {
-                        status = TaskStatus(provider.SetInsideTempBasedOnPriceTask),
-                        errors = TaskErrors(provider.SetInsideTempBasedOnPriceTask)
+                        Status = TaskStatus(provider.SetInsideTempBasedOnPriceTask),
+                        Errors = TaskErrors(provider.SetInsideTempBasedOnPriceTask)
                     },
-                    serverTime = DateTime.Now
-                });
+                    ServerTime = DateTime.Now
+                };
+
+                return Results.Ok(response);
             })
             .WithName("GetHeatAutomationTaskStatus")
-            .Produces(StatusCodes.Status200OK);
+            .Produces<HeatAutomationTasksResponse>(StatusCodes.Status200OK);
 
             heat.MapGet("/override", ([FromServices] HeatAutomationWorkerProvider provider) =>
             {
-                return Results.Ok(new
+                var response = new HeatAutomationOverrideStatusResponse
                 {
-                    isActive = provider.overRide,
-                    targetTemp = provider.overRideTemp,
-                    until = provider.overRideUntil,
-                    serverTime = DateTime.Now
-                });
+                    IsActive = provider.overRide,
+                    TargetTemp = provider.overRideTemp,
+                    Until = provider.overRideUntil,
+                    ServerTime = DateTime.Now
+                };
+
+                return Results.Ok(response);
             })
             .WithName("GetOverrideStatus")
-            .Produces(StatusCodes.Status200OK);
+            .Produces<HeatAutomationOverrideStatusResponse>(StatusCodes.Status200OK);
 
             heat.MapPost("/override", ([FromServices] HeatAutomationWorkerProvider provider, [FromBody] TemperatureOverride request) =>
             {
                 if (request.Hours <= 0 || request.Hours > 48)
-                    return Results.BadRequest(new { message = "Hours must be between 1 and 48." });
+                    return Results.BadRequest(new ErrorResponse { Message = "Hours must be between 1 and 48." });
 
                 if (request.Temperature < 10 || request.Temperature > 30)
-                    return Results.BadRequest(new { message = "Temperature must be between 10°C and 30°C." });
+                    return Results.BadRequest(new ErrorResponse { Message = "Temperature must be between 10°C and 30°C." });
 
                 if (!request.OverRidePrevious && provider.overRide)
-                    return Results.Conflict(new { message = "Override already in progress." });
+                    return Results.Conflict(new ErrorResponse { Message = "Override already in progress." });
 
                 var delay = request.Delay < 0 ? 0 : request.Delay;
 
                 provider.OverRideTemp(request.Hours, request.Temperature, request.OverRidePrevious, delay);
 
-                return Results.Accepted(value: new
+                var response = new HeatAutomationOverrideAcceptedResponse
                 {
-                    message = "Override scheduled",
-                    temperature = request.Temperature,
-                    hours = request.Hours,
-                    delayHours = delay,
-                    requestedAt = DateTime.Now
-                });
+                    Message = "Override scheduled",
+                    Temperature = request.Temperature,
+                    Hours = request.Hours,
+                    DelayHours = delay,
+                    RequestedAt = DateTime.Now
+                };
+
+                return Results.Accepted(value: response);
             })
             .WithName("SetOverrideTemp")
-            .Produces(StatusCodes.Status202Accepted)
-            .Produces(StatusCodes.Status400BadRequest)
-            .Produces(StatusCodes.Status409Conflict);
+            .Produces<HeatAutomationOverrideAcceptedResponse>(StatusCodes.Status202Accepted)
+            .Produces<ErrorResponse>(StatusCodes.Status400BadRequest)
+            .Produces<ErrorResponse>(StatusCodes.Status409Conflict);
 
             heat.MapDelete("/override", ([FromServices] HeatAutomationWorkerProvider provider) =>
             {
                 if (!provider.overRide)
-                    return Results.Conflict(new { message = "No override in progress." });
+                    return Results.Conflict(new ErrorResponse { Message = "No override in progress." });
 
                 provider.CancelOverRide();
-                return Results.Ok(new { message = "Override cancelled.", cancelledAt = DateTime.Now });
+
+                var response = new HeatAutomationOverrideCancelledResponse
+                {
+                    Message = "Override cancelled.",
+                    CancelledAt = DateTime.Now
+                };
+
+                return Results.Ok(response);
             })
             .WithName("CancelOverrideTemp")
-            .Produces(StatusCodes.Status200OK)
-            .Produces(StatusCodes.Status409Conflict);
+            .Produces<HeatAutomationOverrideCancelledResponse>(StatusCodes.Status200OK)
+            .Produces<ErrorResponse>(StatusCodes.Status409Conflict);
         }
     }
 }
