@@ -1,5 +1,5 @@
-﻿using HeatHarmony.Providers;
-using Microsoft.AspNetCore.Http;
+﻿using HeatHarmony.DTO;
+using HeatHarmony.Providers;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HeatHarmony.Routes
@@ -13,54 +13,48 @@ namespace HeatHarmony.Routes
 
             heisha.MapGet("/latest", ([FromServices] HeishaMonProvider provider) =>
             {
-                return Results.Ok(new
+                var response = new HeishaMonLatestResponse
                 {
-                    inletTemp = provider.MainInletTemp,
-                    outletTemp = provider.MainOutletTemp,
-                    targetTemp = provider.MainTargetTemp,
-                    serverTime = DateTime.Now
-                });
+                    InletTemp = provider.MainInletTemp,
+                    OutletTemp = provider.MainOutletTemp,
+                    TargetTemp = provider.MainTargetTemp,
+                    ServerTime = DateTime.Now
+                };
+
+                return Results.Ok(response);
             })
             .WithName("GetLatestHeishaMonReadings")
-            .Produces(StatusCodes.Status200OK);
+            .Produces<HeishaMonLatestResponse>(StatusCodes.Status200OK);
 
             heisha.MapGet("/task", ([FromServices] HeishaMonProvider provider) =>
             {
                 var status = provider.HeishaMonTask?.Status.ToString() ?? "NotStarted";
                 var error = provider.HeishaMonTask?.Exception?.Message;
-                return Results.Ok(new
+
+                var response = new HeishaMonTaskResponse
                 {
-                    status,
-                    errors = error is null ? [] : new[] { error },
-                    serverTime = DateTime.Now
-                });
+                    Status = status,
+                    Errors = error is null ? Array.Empty<string>() : new[] { error },
+                    ServerTime = DateTime.Now
+                };
+
+                return Results.Ok(response);
             })
             .WithName("GetHeishaMonProviderTask")
-            .Produces(StatusCodes.Status200OK);
+            .Produces<HeishaMonTaskResponse>(StatusCodes.Status200OK);
 
             heisha.MapGet("/status", ([FromServices] HeishaMonProvider provider) =>
             {
-                return Results.Ok(new
+                var response = new HeishaMonStatusResponse
                 {
-                    changes = provider.Changes,
-                    serverTime = DateTime.Now
-                });
+                    Changes = provider.Changes,
+                    ServerTime = DateTime.Now
+                };
+
+                return Results.Ok(response);
             })
             .WithName("GetHeishaMonProviderStatus")
-            .Produces(StatusCodes.Status200OK);
-
-            heisha.MapPost("/target/{temperature}", async ([FromServices] HeishaMonProvider provider, int temperature) =>
-            {
-                if (temperature < 20 || temperature > 55)
-                {
-                    return Results.BadRequest(new { message = "temperature must be between 20 and 55 °C" });
-                }
-                await provider.SetTargetTemperature(temperature);
-                return Results.Accepted(value: new { targetTemp = temperature, requestedAt = DateTime.Now });
-            })
-            .WithName("SetHeishaMonTargetTemperature")
-            .Produces(StatusCodes.Status202Accepted)
-            .Produces(StatusCodes.Status400BadRequest);
+            .Produces<HeishaMonStatusResponse>(StatusCodes.Status200OK);
         }
     }
 }

@@ -1,4 +1,5 @@
-﻿using HeatHarmony.Providers;
+﻿using HeatHarmony.DTO;
+using HeatHarmony.Providers;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -17,10 +18,16 @@ namespace HeatHarmony.Routes
                 var data = priceProvider.TodayPrices;
                 if (data.Count == 0)
                     return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
-                return Results.Ok(data);
+
+                var response = new PriceTodayResponse
+                {
+                    Prices = data
+                };
+
+                return Results.Ok(response);
             })
             .WithName("GetTodayPrices")
-            .Produces(StatusCodes.Status200OK)
+            .Produces<PriceTodayResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status503ServiceUnavailable);
 
             prices.MapGet("/tomorrow", ([FromServices] PriceProvider priceProvider) =>
@@ -28,33 +35,55 @@ namespace HeatHarmony.Routes
                 var data = priceProvider.TomorrowPrices;
                 if (data.Count == 0)
                     return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
-                return Results.Ok(data);
+
+                var response = new PriceTomorrowResponse
+                {
+                    Prices = data
+                };
+
+                return Results.Ok(response);
             })
             .WithName("GetTomorrowPrices")
-            .Produces(StatusCodes.Status200OK)
+            .Produces<PriceTomorrowResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status503ServiceUnavailable);
 
             prices.MapGet("/lowperiods/today", ([FromServices] PriceProvider priceProvider) =>
             {
                 var periods = priceProvider.TodayLowPriceTimes;
-                return Results.Ok(periods);
+
+                var response = new TodayLowPeriodsResponse
+                {
+                    Periods = periods
+                };
+
+                return Results.Ok(response);
             })
             .WithName("GetTodayLowPeriods")
-            .Produces(StatusCodes.Status200OK);
+            .Produces<TodayLowPeriodsResponse>(StatusCodes.Status200OK);
 
             prices.MapGet("/lowperiods/all", ([FromServices] PriceProvider priceProvider) =>
             {
-                return Results.Ok(priceProvider.AllLowPriceTimes);
+                var response = new AllLowPeriodsResponse
+                {
+                    Periods = priceProvider.AllLowPriceTimes
+                };
+
+                return Results.Ok(response);
             })
             .WithName("GetAllLowPeriods")
-            .Produces(StatusCodes.Status200OK);
+            .Produces<AllLowPeriodsResponse>(StatusCodes.Status200OK);
 
             prices.MapGet("/nightperiod", ([FromServices] PriceProvider priceProvider) =>
             {
-                return Results.Ok(priceProvider.NightPeriodTimes);
+                var response = new NightPeriodResponse
+                {
+                    Period = priceProvider.NightPeriodTimes
+                };
+
+                return Results.Ok(response);
             })
             .WithName("GetNightPeriod")
-            .Produces(StatusCodes.Status200OK);
+            .Produces<NightPeriodResponse>(StatusCodes.Status200OK);
         }
     }
 }

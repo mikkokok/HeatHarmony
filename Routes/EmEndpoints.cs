@@ -1,7 +1,6 @@
-﻿using HeatHarmony.Models;
+﻿using HeatHarmony.DTO;
+using HeatHarmony.Models;
 using HeatHarmony.Providers;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HeatHarmony.Routes
@@ -16,23 +15,31 @@ namespace HeatHarmony.Routes
             em.MapGet("/latest", async ([FromServices] EMProvider emProvider) =>
             {
                 var isRunning = await emProvider.IsRunning();
-                return Results.Ok(new
+
+                var response = new EmLatestResponse
                 {
-                    emProvider.LastEnabled,
-                    emProvider.IsOverridden,
-                    isRunning,
-                    emProvider.IsOn
-                });
+                    LastEnabled = emProvider.LastEnabled,
+                    IsOverridden = emProvider.IsOverridden,
+                    IsRunning = isRunning,
+                    IsOn = emProvider.IsOn
+                };
+
+                return Results.Ok(response);
             })
             .WithName("GetLatestEM")
-            .Produces(StatusCodes.Status200OK);
+            .Produces<EmLatestResponse>(StatusCodes.Status200OK);
 
             em.MapGet("/changes", ([FromServices] EMProvider emProvider) =>
             {
-                return Results.Ok(emProvider.Changes);
+                var response = new EmChangesResponse
+                {
+                    Changes = emProvider.Changes
+                };
+
+                return Results.Ok(response);
             })
             .WithName("GetEMChanges")
-            .Produces<List<HarmonyChange>>(StatusCodes.Status200OK);
+            .Produces<EmChangesResponse>(StatusCodes.Status200OK);
 
             em.MapPost("/enable", async ([FromServices] EMProvider emProvider) =>
             {
@@ -60,35 +67,55 @@ namespace HeatHarmony.Routes
 
             em.MapPost("/override/enable/{hours?}", async ([FromServices] EMProvider emProvider, int? hours) =>
             {
-                if (hours is int h && h <= 0) return Results.BadRequest(new { message = "hours must be > 0" });
+                if (hours is int h && h <= 0)
+                    return Results.BadRequest(new ErrorResponse { Message = "hours must be > 0" });
+
                 await emProvider.ApplyOverride(EMOverrideMode.Enable, hours);
-                return Results.Accepted(value: new { mode = EMOverrideMode.Enable, hours });
+
+                var response = new EmOverrideResultResponse
+                {
+                    Mode = EMOverrideMode.Enable,
+                    Hours = hours
+                };
+
+                return Results.Accepted(value: response);
             })
             .WithName("OverrideEMEnableWaterHeating")
-            .Produces(StatusCodes.Status202Accepted)
-            .Produces(StatusCodes.Status400BadRequest);
+            .Produces<EmOverrideResultResponse>(StatusCodes.Status202Accepted)
+            .Produces<ErrorResponse>(StatusCodes.Status400BadRequest);
 
             em.MapPost("/override/disable/{hours?}", async ([FromServices] EMProvider emProvider, int? hours) =>
             {
-                if (hours is int h && h <= 0) return Results.BadRequest(new { message = "hours must be > 0" });
+                if (hours is int h && h <= 0)
+                    return Results.BadRequest(new ErrorResponse { Message = "hours must be > 0" });
+
                 await emProvider.ApplyOverride(EMOverrideMode.Disable, hours);
-                return Results.Accepted(value: new { mode = EMOverrideMode.Disable, hours });
+
+                var response = new EmOverrideResultResponse
+                {
+                    Mode = EMOverrideMode.Disable,
+                    Hours = hours
+                };
+
+                return Results.Accepted(value: response);
             })
             .WithName("OverrideEMDisableWaterHeating")
-            .Produces(StatusCodes.Status202Accepted)
-            .Produces(StatusCodes.Status400BadRequest);
+            .Produces<EmOverrideResultResponse>(StatusCodes.Status202Accepted)
+            .Produces<ErrorResponse>(StatusCodes.Status400BadRequest);
 
             em.MapGet("/override/status", ([FromServices] EMProvider emProvider) =>
             {
-                return Results.Ok(new
+                var response = new EmOverrideStatusResponse
                 {
-                    emProvider.OverrideMode,
-                    emProvider.IsOverrideActive,
-                    emProvider.OverrideUntil
-                });
+                    OverrideMode = emProvider.OverrideMode,
+                    IsOverrideActive = emProvider.IsOverrideActive,
+                    OverrideUntil = emProvider.OverrideUntil
+                };
+
+                return Results.Ok(response);
             })
             .WithName("GetEMOverrideStatus")
-            .Produces(StatusCodes.Status200OK);
+            .Produces<EmOverrideStatusResponse>(StatusCodes.Status200OK);
         }
     }
 }

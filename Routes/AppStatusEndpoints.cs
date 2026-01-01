@@ -1,4 +1,5 @@
-﻿using HeatHarmony.Providers;
+﻿using HeatHarmony.DTO;
+using HeatHarmony.Providers;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HeatHarmony.Routes
@@ -12,34 +13,39 @@ namespace HeatHarmony.Routes
 
             appStatus.MapGet("/ping", () =>
             {
-                return Results.Ok(new { status = "pong", serverTime = DateTime.Now });
+                var response = new AppPingResponse
+                {
+                    Status = "pong",
+                    ServerTime = DateTime.Now
+                };
+
+                return Results.Ok(response);
             })
             .WithName("GetAppHealthStatus")
-            .Produces(StatusCodes.Status200OK);
+            .Produces<AppPingResponse>(StatusCodes.Status200OK);
 
-            appStatus.MapGet("/uptime",  ([FromServices] HeatAutomationWorkerProvider provider) =>
+            appStatus.MapGet("/uptime", ([FromServices] HeatAutomationWorkerProvider provider) =>
             {
                 var now = DateTime.Now;
                 var uptime = now - provider.StartupLocal;
 
-                string duration = $"Days: {uptime.Days} Hours: {uptime.Hours} Minutes: {uptime.Minutes} Seconds: {uptime.Seconds}";
-
-                var payload = new
+                var response = new AppUptimeResponse
                 {
-                    startupTime = provider.StartupLocal,
-                    serverTime = now,
-                    uptime = new
+                    StartupTime = provider.StartupLocal,
+                    ServerTime = now,
+                    Uptime = new AppUptimeInfo
                     {
-                        ticks = uptime.Ticks,
-                        totalSeconds = uptime.TotalSeconds,
-                        duration
+                        Ticks = uptime.Ticks,
+                        TotalSeconds = uptime.TotalSeconds,
+                        Duration =
+                            $"Days: {uptime.Days} Hours: {uptime.Hours} Minutes: {uptime.Minutes} Seconds: {uptime.Seconds}"
                     }
                 };
 
-                return Results.Ok(payload);
+                return Results.Ok(response);
             })
             .WithName("GetAppUptime")
-            .Produces(StatusCodes.Status200OK);
+            .Produces<AppUptimeResponse>(StatusCodes.Status200OK);
         }
     }
 }

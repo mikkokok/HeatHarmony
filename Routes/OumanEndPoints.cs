@@ -1,4 +1,5 @@
-﻿using HeatHarmony.Providers;
+﻿using HeatHarmony.DTO;
+using HeatHarmony.Providers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -13,44 +14,51 @@ namespace HeatHarmony.Routes
 
             ouman.MapGet("/latest", ([FromServices] OumanProvider provider) =>
             {
-                return Results.Ok(new
+                var response = new OumanLatestResponse
                 {
-                    outsideTemp = provider.LatestOutsideTemp,
-                    flowDemand = provider.LatestFlowDemand,
-                    insideTempDemand = provider.LatestInsideTempDemand,
-                    minFlowTemp = provider.LatestMinFlowTemp,
-                    autoTemp = provider.AutoTemp,
-                    insideTemp = provider.LatestInsideTemp,
-                    serverTime = DateTime.Now
-                });
+                    OutsideTemp = provider.LatestOutsideTemp,
+                    FlowDemand = provider.LatestFlowDemand,
+                    InsideTempDemand = provider.LatestInsideTempDemand,
+                    MinFlowTemp = provider.LatestMinFlowTemp,
+                    AutoTemp = provider.AutoTemp,
+                    InsideTemp = provider.LatestInsideTemp,
+                    ServerTime = DateTime.Now
+                };
+
+                return Results.Ok(response);
             })
             .WithName("GetLatestOumanReadings")
-            .Produces(StatusCodes.Status200OK);
+            .Produces<OumanLatestResponse>(StatusCodes.Status200OK);
 
             ouman.MapGet("/status", ([FromServices] OumanProvider provider) =>
             {
-                return Results.Ok(new
+                var response = new OumanStatusResponse
                 {
-                    changes = provider.Changes,
-                    serverTime = DateTime.Now
-                });
+                    Changes = provider.Changes,
+                    ServerTime = DateTime.Now
+                };
+
+                return Results.Ok(response);
             })
             .WithName("GetOumanStatus")
-            .Produces(StatusCodes.Status200OK);
+            .Produces<OumanStatusResponse>(StatusCodes.Status200OK);
 
             ouman.MapGet("/task", ([FromServices] OumanProvider provider) =>
             {
                 var status = provider.OumanTask?.Status.ToString() ?? "NotStarted";
                 var error = provider.OumanTask?.Exception?.Message;
-                return Results.Ok(new
+
+                var response = new OumanTaskResponse
                 {
-                    status,
-                    errors = error is null ? [] : new[] { error },
-                    serverTime = DateTime.Now
-                });
+                    Status = status,
+                    Errors = error is null ? Array.Empty<string>() : new[] { error },
+                    ServerTime = DateTime.Now
+                };
+
+                return Results.Ok(response);
             })
             .WithName("GetOumanProviderTask")
-            .Produces(StatusCodes.Status200OK);
+            .Produces<OumanTaskResponse>(StatusCodes.Status200OK);
         }
     }
 }

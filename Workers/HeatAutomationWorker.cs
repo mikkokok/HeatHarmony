@@ -390,6 +390,7 @@ namespace HeatHarmony.Workers
                     await _oumanProvider.SetInsideTemp(21);
                     await _oumanProvider.SetMinFlowTemp(30);
                     await SetTRVAuto();
+                    return;
                 }
 
                 if (!isRankDataValid)

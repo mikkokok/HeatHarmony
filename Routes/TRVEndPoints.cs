@@ -1,5 +1,5 @@
-﻿using HeatHarmony.Providers;
-using Microsoft.AspNetCore.Http;
+﻿using HeatHarmony.DTO;
+using HeatHarmony.Providers;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HeatHarmony.Routes
@@ -14,29 +14,34 @@ namespace HeatHarmony.Routes
             trv.MapGet("/latest", ([FromServices] TRVProvider trvProvider) =>
             {
                 var devices = trvProvider.GetDevices();
-                return Results.Ok(new
+
+                var response = new TRVLatestResponse
                 {
-                    devices,
-                    serverTime = DateTime.Now
-                });
+                    Devices = devices,
+                    ServerTime = DateTime.Now
+                };
+
+                return Results.Ok(response);
             })
             .WithName("GetLatestTRVReadings")
-            .Produces(StatusCodes.Status200OK);
+            .Produces<TRVLatestResponse>(StatusCodes.Status200OK);
 
             trv.MapGet("/task", ([FromServices] TRVProvider trvProvider) =>
             {
                 var status = trvProvider.TRVTask?.Status.ToString() ?? "NotStarted";
                 var error = trvProvider.TRVTask?.Exception?.Message;
 
-                return Results.Ok(new
+                var response = new TRVTaskResponse
                 {
-                    status,
-                    errors = error is null ? Array.Empty<string>() : new[] { error },
-                    serverTime = DateTime.Now
-                });
+                    Status = status,
+                    Errors = error is null ? Array.Empty<string>() : new[] { error },
+                    ServerTime = DateTime.Now
+                };
+
+                return Results.Ok(response);
             })
             .WithName("GetTRVProviderTask")
-            .Produces(StatusCodes.Status200OK);
+            .Produces<TRVTaskResponse>(StatusCodes.Status200OK);
         }
     }
 }
