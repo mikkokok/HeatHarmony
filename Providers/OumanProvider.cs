@@ -55,6 +55,11 @@ namespace HeatHarmony.Providers
 
         public async Task SetMinFlowTemp(int newTemp)
         {
+            if (LatestMinFlowTemp == newTemp)
+            {
+                _logger.LogInformation("{service}:: SetMinFlowTemp called but temp is already {temp}, skipping", _serviceName, newTemp);
+                return;
+            }
             await Login();
             var url = GlobalConfig.OumanConfig!.Url + "update?@_S_54_85=" + newTemp + ";";
             var result = await _requestProvider.GetStringAsync(HttpClientConst.OumanClient, url);
@@ -68,6 +73,11 @@ namespace HeatHarmony.Providers
 
         public async Task SetInsideTemp(double newTemp)
         {
+            if (LatestInsideTemp == newTemp)
+            {
+                _logger.LogInformation("{service}:: SetInsideTemp called but temp is already {temp}, skipping", _serviceName, newTemp);
+                return;
+            }
             await Login();
             var url = GlobalConfig.OumanConfig!.Url + "update?@_S_81_85=" + newTemp + ";";
             var result = await _requestProvider.GetStringAsync(HttpClientConst.OumanClient, url);
@@ -162,7 +172,6 @@ namespace HeatHarmony.Providers
                 }
             }
         }
-
         private async Task Login()
         {
             var url = GlobalConfig.OumanConfig!.Url + "login?uid=" + GlobalConfig.OumanConfig!.Username + ";pwd=" + GlobalConfig.OumanConfig!.Password;
