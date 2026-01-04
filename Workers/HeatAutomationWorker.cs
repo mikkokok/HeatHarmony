@@ -488,6 +488,13 @@ namespace HeatHarmony.Workers
                             await SetTRVMaxHeating();
                             return;
                         }
+                        if (currentPeriod.AveragePrice < GlobalConfig.HeatAutomationConfig.CheapPriceThreshold)
+                        {
+                            _logger.LogInformation("{service}:: Winter cheap -> inside 21C", _serviceName);
+                            await SetOumanAutoAndInside(21);
+                            await SetTRVAuto();
+                            return;
+                        }
                         _logger.LogInformation("{service}:: Winter cheap rank {rank} -> inside 20C", _serviceName, currentPeriod.Rank);
                         await SetOumanAutoAndInside(20);
                         await SetTRVAuto();

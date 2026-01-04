@@ -72,6 +72,7 @@ app.MapTRVEndPoints();
 app.MapHeatAutomationEndpoints();
 app.MapPriceEndpoints();
 app.MapEmEndPoints();
+app.MapOilBurnerEndPoints();
 app.MapAppStatusEndpoints();
 
 app.Run();
