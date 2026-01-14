@@ -21,6 +21,7 @@
         SetConservativeHeating,
         OverrideEnable,
         SetTargetTemp,
+        SetQuietMode,
         OilBurnerEnable,
         OilBurnerDisable
     }

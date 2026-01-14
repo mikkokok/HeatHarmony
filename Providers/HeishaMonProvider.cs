@@ -13,6 +13,7 @@ namespace HeatHarmony.Providers
         public double MainInletTemp { get; private set; } = 0.0;
         public double MainOutletTemp { get; private set; } = 0.0;
         public int MainTargetTemp { get; private set; } = 0;
+        public int QuietMode { get; private set; } = 0;
         public List<HarmonyChange> Changes { get; private set; } = [];
         public HeishaMonProvider(ILogger<HeishaMonProvider> logger, IRequestProvider requestProvider)
         {
@@ -59,6 +60,27 @@ namespace HeatHarmony.Providers
             }
         }
 
+        public async Task SetQuietMode(int mode)
+        {
+            if (QuietMode == mode)
+            {
+                _logger.LogInformation($"{_serviceName}:: SetQuietMode called but mode is already {mode}");
+                return;
+            }
+            try
+            {
+                var url = GlobalConfig.HeishaUrl + $"command?SetQuietMode={mode}";
+                var result = await _requestProvider.GetStringAsync(HttpClientConst.HeishaClient, url)
+                    ?? throw new Exception($"{_serviceName}:: SetQuietMode returned null");
+                QuietMode = int.Parse(result.Split(" ")[4]);
+                LogUtils.AddChangeRecord(Changes, Provider.HeishaMon, HarmonyChangeType.SetQuietMode, $"New mode {mode}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogCritical(ex, $"{_serviceName}:: SetQuietMode failed");
+            }
+        }
+
         private void HandleHeatPumpInfo(Heatpump hinfo)
         {
             switch (hinfo.Topic)
@@ -71,6 +93,9 @@ namespace HeatHarmony.Providers
                     break;
                 case "TOP5":
                     MainInletTemp = double.Parse(hinfo.Value);
+                    break;
+                case "TOP18":
+                    QuietMode = int.Parse(hinfo.Value);
                     break;
                 default:
                     break;

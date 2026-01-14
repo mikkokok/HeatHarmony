@@ -360,7 +360,7 @@ namespace HeatHarmony.Workers
             var inside = _oumanProvider.LatestInsideTemp;
             var nightPeriod = _priceProvider.NightPeriodTimes;
             var nightHours = TimeUtils.GetHoursInRange(nightPeriod);
-            var bestHours = bestPricePeriod != null ? TimeUtils.GetHoursInRange(bestPricePeriod) : 0;;
+            var bestHours = bestPricePeriod != null ? TimeUtils.GetHoursInRange(bestPricePeriod) : 0; ;
             var isOilburnerActive = _oilBurnerProvider.IsEnabled;
 
             var scope = new
@@ -378,6 +378,7 @@ namespace HeatHarmony.Workers
             {
                 if (inside > 26)
                 {
+                    await _heishaMonProvider.SetQuietMode(3);
                     _logger.LogInformation("{service}:: Inside temp {insideTemp}C high -> conservative heating", _serviceName, inside);
                     await _oumanProvider.SetConservativeHeating();
                     await SetTRVAuto();
@@ -395,11 +396,13 @@ namespace HeatHarmony.Workers
 
                 if (!isRankDataValid)
                 {
+                    await _heishaMonProvider.SetQuietMode(3);
                     if (DateTime.Now.Hour is > 0 and < 6 && outside < 15 && outside > -5)
                     {
                         _logger.LogWarning("{service}:: No price data, early hours moderate outside -> opportunistic high flow", _serviceName);
                         await SetOumanAutoAndMin(maxtemp);
                         await SetTRVMaxHeating();
+
                         return;
                     }
                     _logger.LogWarning("{service}:: No price data -> conservative heating", _serviceName);
@@ -410,6 +413,7 @@ namespace HeatHarmony.Workers
 
                 if (outside >= 15)
                 {
+                    await _heishaMonProvider.SetQuietMode(3);
                     if (TimeUtils.IsCurrentTimeInRange(nightPeriod))
                     {
                         _logger.LogInformation("{service}:: Summer + night window (hours={hours})", _serviceName, nightHours);
@@ -435,6 +439,8 @@ namespace HeatHarmony.Workers
 
                 if (outside > -5)
                 {
+                    await _heishaMonProvider.SetQuietMode(3);
+
                     if (bestHours > 16 && TimeUtils.IsCurrentTimeInRange(bestPricePeriod))
                     {
                         _logger.LogInformation("{service}:: Shoulder long cheap window ({hours}h) -> mid flow", _serviceName, bestHours);
@@ -456,8 +462,10 @@ namespace HeatHarmony.Workers
                     }
                     return;
                 }
-                else if (outside <= -5)
+                else if (outside <= -5 && outside > -20)
                 {
+                    await _heishaMonProvider.SetQuietMode(3);
+                    _logger.LogInformation("{service}:: Winter branch -> evaluating price periods", _serviceName);
                     var currentPeriod = _priceProvider.AllLowPriceTimes.FirstOrDefault(p => TimeUtils.IsCurrentTimeInRange(p));
                     if (currentPeriod == null)
                     {
@@ -501,15 +509,11 @@ namespace HeatHarmony.Workers
                         return;
                     }
                 }
-                else
-                {
-                    _logger.LogInformation("{service}:: Extreme cold branch -> inside 19C", _serviceName);
-                    await SetOumanAutoAndInside(19);
-                    await SetTRVAuto();
-                }
+                    
                 _logger.LogInformation("{service}:: Fallback conservative heating", _serviceName);
                 await _oumanProvider.SetConservativeHeating();
                 await SetTRVAuto();
+                await _heishaMonProvider.SetQuietMode(0);
             }
         }
 

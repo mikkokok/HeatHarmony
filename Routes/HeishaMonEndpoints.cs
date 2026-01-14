@@ -18,6 +18,7 @@ namespace HeatHarmony.Routes
                     InletTemp = provider.MainInletTemp,
                     OutletTemp = provider.MainOutletTemp,
                     TargetTemp = provider.MainTargetTemp,
+                    QuietMode = provider.QuietMode,
                     ServerTime = DateTime.Now
                 };
 
