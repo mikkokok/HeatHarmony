@@ -204,10 +204,18 @@ namespace HeatHarmony.Workers
                             }
                             else if (isRunning)
                             {
-                                if (hasRunEnough || (!shouldEnable && !IsEmergencyHeatingNeeded()))
+                                if (hasRunEnough)
                                 {
+                                    var hoursRun = TimeUtils.HoursSince(_emProvider.LastEnabled);
+                                    _logger.LogInformation("{service}:: Considering disable of water heating due to hasRunEnough, has been running for {hoursRun} hours", _serviceName, hoursRun);
+                                    await SafeDisableWaterHeating();
+                                }
+                                else if (!shouldEnable && !IsEmergencyHeatingNeeded())
+                                {
+                                    _logger.LogInformation("{service}:: Considering disable of water heating due to shouldEnable {shouldEnable} and not emergency heating", _serviceName, shouldEnable);
                                     if ((now - lastDisableAttempt) >= TimeSpan.FromMinutes(10))
                                     {
+                                        _logger.LogInformation("{service}:: Proceeding with disable after debounce window", _serviceName);
                                         await SafeDisableWaterHeating();
                                         lastDisableAttempt = now;
                                         await Task.Delay(TimeSpan.FromMinutes(30), stoppingToken);
@@ -376,15 +384,6 @@ namespace HeatHarmony.Workers
 
             using (_logger.BeginScope(scope))
             {
-                if (inside > 26)
-                {
-                    await _heishaMonProvider.SetQuietMode(3);
-                    _logger.LogInformation("{service}:: Inside temp {insideTemp}C high -> conservative heating", _serviceName, inside);
-                    await _oumanProvider.SetConservativeHeating();
-                    await SetTRVAuto();
-                    return;
-                }
-
                 if (isOilburnerActive)
                 {
                     _logger.LogInformation("{service}:: Oil burner is active", _serviceName);
@@ -439,26 +438,27 @@ namespace HeatHarmony.Workers
 
                 if (outside > -5)
                 {
-                    await _heishaMonProvider.SetQuietMode(3);
-
                     if (bestHours > 16 && TimeUtils.IsCurrentTimeInRange(bestPricePeriod))
                     {
                         _logger.LogInformation("{service}:: Shoulder long cheap window ({hours}h) -> mid flow", _serviceName, bestHours);
                         await _oumanProvider.SetMinFlowTemp(30);
                         await _oumanProvider.SetAutoDriveOn();
                         await _oumanProvider.SetInsideTemp(22);
+                        await _heishaMonProvider.SetQuietMode(3);
                     }
                     else if (TimeUtils.IsCurrentTimeInRange(nightPeriod))
                     {
                         _logger.LogInformation("{service}:: Shoulder night window -> max flow", _serviceName);
-                        await SetOumanAutoAndMin(55);
+                        await SetOumanAutoAndMin(50);
                         await SetTRVMaxHeating();
+                        await _heishaMonProvider.SetQuietMode(2);
                     }
                     else
                     {
                         _logger.LogInformation("{service}:: Shoulder outside cheap/night -> low flow", _serviceName);
                         await SetOumanAutoAndMin(20);
                         await SetTRVAuto();
+                        await _heishaMonProvider.SetQuietMode(3);
                     }
                     return;
                 }
