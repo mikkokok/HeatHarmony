@@ -160,6 +160,7 @@ namespace HeatHarmony.Workers
                 bool isOverridden = _emProvider.IsOverridden;
                 bool hasRunEnough = !isStale && _emProvider.HasRunEnough();
                 bool shouldEnable = !isStale && ShouldEnableWaterHeating();
+                var hoursRun = TimeUtils.HoursSince(_emProvider.LastEnabled);
 
                 var scope = new
                 {
@@ -196,23 +197,30 @@ namespace HeatHarmony.Workers
                                 }
                             }
                         }
+                        else if (shouldEnable && !isRunning)
+                        {
+                            _logger.LogInformation("{service}:: Decided to enable water heating (decision: optimal)", _serviceName);
+                            await SafeEnableWaterHeating();
+                        }
+                        else if (!hasRunEnough)
+                        {
+                            _logger.LogInformation("{service}:: Water heating has not run enough yet (hoursRun: {hoursRun})", _serviceName, hoursRun);
+                        }
                         else
                         {
-                            if (shouldEnable && !isRunning)
+                            if (!isRunning)
                             {
-                                await SafeEnableWaterHeating();
+                                _logger.LogInformation("{service}:: Water heating remains off (decision: not optimal)", _serviceName);
                             }
-                            else if (isRunning)
+                            else
                             {
-                                if (hasRunEnough)
+
+                                if (!shouldEnable && !IsEmergencyHeatingNeeded())
                                 {
-                                    var hoursRun = TimeUtils.HoursSince(_emProvider.LastEnabled);
-                                    _logger.LogInformation("{service}:: Considering disable of water heating due to hasRunEnough, has been running for {hoursRun} hours", _serviceName, hoursRun);
-                                    await SafeDisableWaterHeating();
-                                }
-                                else if (!shouldEnable && !IsEmergencyHeatingNeeded())
-                                {
-                                    _logger.LogInformation("{service}:: Considering disable of water heating due to shouldEnable {shouldEnable} and not emergency heating", _serviceName, shouldEnable);
+                                    _logger.LogInformation(
+                                        "{service}:: Considering disable of water heating due to shouldEnable {shouldEnable} and not emergency heating and has run enough {hasRunEnough}",
+                                        _serviceName, shouldEnable, hasRunEnough);
+
                                     if ((now - lastDisableAttempt) >= TimeSpan.FromMinutes(10))
                                     {
                                         _logger.LogInformation("{service}:: Proceeding with disable after debounce window", _serviceName);
@@ -229,10 +237,6 @@ namespace HeatHarmony.Workers
                                 {
                                     _logger.LogInformation("{service}:: Continuing water heating cycle", _serviceName);
                                 }
-                            }
-                            else
-                            {
-                                _logger.LogInformation("{service}:: Water heating remains off (decision: not optimal)", _serviceName);
                             }
                         }
                     }
@@ -509,7 +513,7 @@ namespace HeatHarmony.Workers
                         return;
                     }
                 }
-                    
+
                 _logger.LogInformation("{service}:: Fallback conservative heating", _serviceName);
                 await _oumanProvider.SetConservativeHeating();
                 await SetTRVAuto();

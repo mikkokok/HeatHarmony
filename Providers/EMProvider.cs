@@ -18,6 +18,7 @@ namespace HeatHarmony.Providers
         private CancellationTokenSource _overrideCTokenSource = new();
         public bool IsOverrideActive => OverrideUntil is not null && DateTime.Now <= OverrideUntil.Value && OverrideMode != EMOverrideMode.None;
         public List<HarmonyChange> Changes { get; private set; } = [];
+        public Task OverrideMonitoringTask { get; private set; } = Task.CompletedTask;
         public bool IsOverridden
         {
             get
@@ -145,7 +146,11 @@ namespace HeatHarmony.Providers
 
             _logger.LogInformation("{service}:: Override applied: {mode} for {hours}h until {until}", _serviceName, mode, duration, OverrideUntil);
             LogUtils.AddChangeRecord(Changes, Provider.EM, HarmonyChangeType.OverrideEnable, $"Override applied: {mode} for {duration} hours (until {OverrideUntil}).");
+            OverrideMonitoringTask = MonitorOverrideAsync(duration);
+        }
 
+        private async Task MonitorOverrideAsync(int duration)
+        {
             try
             {
                 await Task.Delay(TimeSpan.FromHours(duration), _overrideCTokenSource.Token);
