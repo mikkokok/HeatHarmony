@@ -30,6 +30,17 @@ namespace HeatHarmony.Routes
             .WithName("GetLatestOumanReadings")
             .Produces<OumanLatestResponse>(StatusCodes.Status200OK);
 
+            ouman.MapGet("/latestHistory", ([FromServices] OumanProvider provider) =>
+            {
+                if (provider.OumanHistoryData is null)
+                {
+                    return Results.NoContent();
+                }
+                return Results.Ok(provider.OumanHistoryData);
+            })
+            .WithName("GetLatestOumanHistory")
+            .Produces<List<OumanLatestResponse>>(StatusCodes.Status200OK);
+
             ouman.MapGet("/status", ([FromServices] OumanProvider provider) =>
             {
                 var response = new OumanStatusResponse

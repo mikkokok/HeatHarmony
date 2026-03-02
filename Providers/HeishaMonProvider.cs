@@ -1,4 +1,5 @@
 ﻿using HeatHarmony.Config;
+using HeatHarmony.DTO;
 using HeatHarmony.Models;
 using HeatHarmony.Utils;
 
@@ -10,18 +11,29 @@ namespace HeatHarmony.Providers
         private readonly ILogger<HeishaMonProvider> _logger;
         private readonly IRequestProvider _requestProvider;
         public Task HeishaMonTask { get; private set; }
+        public Task HeishaMonHistoryTask { get; private set; }
         public double MainInletTemp { get; private set; } = 0.0;
         public double MainOutletTemp { get; private set; } = 0.0;
         public int MainTargetTemp { get; private set; } = 0;
         public int QuietMode { get; private set; } = 0;
         public List<HarmonyChange> Changes { get; private set; } = [];
+        public double PumpFlow { get; private set; }
+        public string? PumpError { get; private set; }
+        public int HeatEnergyProduction { get; private set; }
+        public int HeatEnergyConsumption { get; private set; }
+        public int CompressorFrequency { get; private set; }
+
+        public List<HeishaMonLatestResponse> HeishamonHistoryData { get; private set; } = [];
+
         public HeishaMonProvider(ILogger<HeishaMonProvider> logger, IRequestProvider requestProvider)
         {
             _serviceName = nameof(HeishaMonProvider);
             _logger = logger;
             _requestProvider = requestProvider;
             HeishaMonTask = UpdateHeishaMonStatus();
+            HeishaMonHistoryTask = UpdateHeishaMonHistory();
         }
+
         public async Task UpdateHeishaMonStatus()
         {
             while (true)
@@ -85,8 +97,8 @@ namespace HeatHarmony.Providers
         {
             switch (hinfo.Topic)
             {
-                case "TOP7":
-                    MainTargetTemp = int.Parse(hinfo.Value);
+                case "TOP1":
+                    PumpFlow = double.Parse(hinfo.Value);
                     break;
                 case "TOP6":
                     MainOutletTemp = double.Parse(hinfo.Value);
@@ -94,11 +106,49 @@ namespace HeatHarmony.Providers
                 case "TOP5":
                     MainInletTemp = double.Parse(hinfo.Value);
                     break;
+                case "TOP7":
+                    MainTargetTemp = int.Parse(hinfo.Value);
+                    break;
+                case "TOP8":
+                    CompressorFrequency = int.Parse(hinfo.Value);
+                    break;
+                case "TOP15":
+                    HeatEnergyProduction = int.Parse(hinfo.Value);
+                    break;
+                case "TOP16":
+                    HeatEnergyConsumption = int.Parse(hinfo.Value);
+                    break;
                 case "TOP18":
                     QuietMode = int.Parse(hinfo.Value);
                     break;
+                case "TOP44":
+                    PumpError = hinfo.Value;
+                    break;
                 default:
                     break;
+            }
+        }
+
+        private async Task UpdateHeishaMonHistory()
+        {
+            while (true)
+            {
+                var latestData = new HeishaMonLatestResponse
+                {
+                    InletTemp = MainInletTemp,
+                    OutletTemp = MainOutletTemp,
+                    TargetTemp = MainTargetTemp,
+                    QuietMode = QuietMode,
+                    PumpFlow = PumpFlow,
+                    PumpError = PumpError,
+                    HeatEnergyProduction = HeatEnergyProduction,
+                    HeatEnergyConsumption = HeatEnergyConsumption,
+                    CompressorFrequency = CompressorFrequency,
+                    ServerTime = DateTime.Now
+                };
+                HeishamonHistoryData.Add(latestData);
+                HeishamonHistoryData.RemoveAll(d => d.ServerTime < DateTime.Now.AddDays(-3));
+                await Task.Delay(TimeSpan.FromMinutes(15));
             }
         }
     }

@@ -161,6 +161,7 @@ namespace HeatHarmony.Workers
                 bool hasRunEnough = !isStale && _emProvider.HasRunEnough();
                 bool shouldEnable = !isStale && ShouldEnableWaterHeating();
                 var hoursRun = TimeUtils.HoursSince(_emProvider.LastEnabled);
+                var isOn = _emProvider.IsOn;
 
                 var scope = new
                 {
@@ -170,7 +171,8 @@ namespace HeatHarmony.Workers
                     water_isOverridden = isOverridden,
                     water_isPriceStale = isStale,
                     water_hasRunEnough = hasRunEnough,
-                    water_shouldEnable = shouldEnable
+                    water_shouldEnable = shouldEnable,
+                    water_isOn = isOn
                 };
 
                 using (_logger.BeginScope(scope))
@@ -210,7 +212,8 @@ namespace HeatHarmony.Workers
                         {
                             if (!isRunning)
                             {
-                                _logger.LogInformation("{service}:: Water heating remains off (decision: not optimal)", _serviceName);
+                                _logger.LogInformation("{service}:: Water heating remains off (decision: not optimal), shutting if not already set {water_isOn}", _serviceName, isOn);
+                                await SafeDisableWaterHeating();
                             }
                             else
                             {
@@ -372,7 +375,7 @@ namespace HeatHarmony.Workers
             var inside = _oumanProvider.LatestInsideTemp;
             var nightPeriod = _priceProvider.NightPeriodTimes;
             var nightHours = TimeUtils.GetHoursInRange(nightPeriod);
-            var bestHours = bestPricePeriod != null ? TimeUtils.GetHoursInRange(bestPricePeriod) : 0; ;
+            var bestHours = bestPricePeriod != null ? TimeUtils.GetHoursInRange(bestPricePeriod) : 0;
             var isOilburnerActive = _oilBurnerProvider.IsEnabled;
 
             var scope = new
@@ -455,7 +458,7 @@ namespace HeatHarmony.Workers
                         _logger.LogInformation("{service}:: Shoulder night window -> max flow", _serviceName);
                         await SetOumanAutoAndMin(50);
                         await SetTRVMaxHeating();
-                        await _heishaMonProvider.SetQuietMode(2);
+                        await _heishaMonProvider.SetQuietMode(1);
                     }
                     else
                     {
@@ -468,7 +471,21 @@ namespace HeatHarmony.Workers
                 }
                 else if (outside <= -5 && outside > -20)
                 {
-                    await _heishaMonProvider.SetQuietMode(3);
+                    switch (outside)
+                    {
+                        case >= -5:
+                            await _heishaMonProvider.SetQuietMode(3);
+                            break;
+                        case > -15 and < -5:
+                            await _heishaMonProvider.SetQuietMode(2);
+                            break;
+                        case > -20 and <= -15:
+                            await _heishaMonProvider.SetQuietMode(1);
+                            break;
+                        default:
+                            await _heishaMonProvider.SetQuietMode(0);
+                            break;
+                    }
                     _logger.LogInformation("{service}:: Winter branch -> evaluating price periods", _serviceName);
                     var currentPeriod = _priceProvider.AllLowPriceTimes.FirstOrDefault(p => TimeUtils.IsCurrentTimeInRange(p));
                     if (currentPeriod == null)

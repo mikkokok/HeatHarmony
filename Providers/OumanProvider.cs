@@ -1,4 +1,5 @@
 ﻿using HeatHarmony.Config;
+using HeatHarmony.DTO;
 using HeatHarmony.Models;
 using HeatHarmony.Utils;
 
@@ -17,6 +18,8 @@ namespace HeatHarmony.Providers
         public Task OumanTask { get; private set; }
         public List<HarmonyChange> Changes { get; private set; } = [];
         public double LatestInsideTemp { get; private set; }
+        public List<OumanLatestResponse> OumanHistoryData { get; private set; } = [];
+        public Task OumanHistoryTask { get; private set; }
 
         public OumanProvider(ILogger<OumanProvider> logger, IRequestProvider requestProvider)
         {
@@ -24,6 +27,7 @@ namespace HeatHarmony.Providers
             _logger = logger;
             _requestProvider = requestProvider;
             OumanTask = GetLatestReadings();
+            OumanHistoryTask = UpdateOumanHistory();
         }
 
         private async Task GetLatestReadings()
@@ -176,6 +180,26 @@ namespace HeatHarmony.Providers
         {
             var url = GlobalConfig.OumanConfig!.Url + "login?uid=" + GlobalConfig.OumanConfig!.Username + ";pwd=" + GlobalConfig.OumanConfig!.Password;
             await _requestProvider.GetStringAsync(HttpClientConst.OumanClient, url);
+        }
+
+        private async Task UpdateOumanHistory()
+        {
+            while (true)
+            {
+                var latestData = new OumanLatestResponse
+                {
+                    FlowDemand = LatestFlowDemand,
+                    InsideTempDemand = LatestInsideTempDemand,
+                    MinFlowTemp = LatestMinFlowTemp,
+                    AutoTemp = AutoTemp,
+                    InsideTemp = LatestInsideTemp,
+                    OutsideTemp = LatestOutsideTemp,
+                    ServerTime = DateTime.Now
+                };
+                OumanHistoryData.Add(latestData);
+                OumanHistoryData.RemoveAll(d => d.ServerTime < DateTime.Now.AddDays(-7));
+                await Task.Delay(TimeSpan.FromMinutes(15));
+            }
         }
     }
 }

@@ -19,6 +19,11 @@ namespace HeatHarmony.Routes
                     OutletTemp = provider.MainOutletTemp,
                     TargetTemp = provider.MainTargetTemp,
                     QuietMode = provider.QuietMode,
+                    CompressorFrequency = provider.CompressorFrequency,
+                    HeatEnergyConsumption = provider.HeatEnergyConsumption,
+                    HeatEnergyProduction = provider.HeatEnergyProduction,
+                    PumpError = provider.PumpError,
+                    PumpFlow = provider.PumpFlow,
                     ServerTime = DateTime.Now
                 };
 
@@ -26,6 +31,13 @@ namespace HeatHarmony.Routes
             })
             .WithName("GetLatestHeishaMonReadings")
             .Produces<HeishaMonLatestResponse>(StatusCodes.Status200OK);
+
+            heisha.MapGet("/latestHistory", ([FromServices] HeishaMonProvider provider) =>
+            {
+                return Results.Ok(provider.HeishamonHistoryData);
+            })
+            .WithName("GetHeishaMonHistory")
+            .Produces<List<HeishaMonLatestResponse>>(StatusCodes.Status200OK);
 
             heisha.MapGet("/task", ([FromServices] HeishaMonProvider provider) =>
             {
@@ -35,7 +47,7 @@ namespace HeatHarmony.Routes
                 var response = new HeishaMonTaskResponse
                 {
                     Status = status,
-                    Errors = error is null ? Array.Empty<string>() : new[] { error },
+                    Errors = error is null ? Array.Empty<string>() : [error],
                     ServerTime = DateTime.Now
                 };
 
