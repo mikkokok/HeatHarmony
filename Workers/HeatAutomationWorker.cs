@@ -195,7 +195,8 @@ namespace HeatHarmony.Workers
                                 }
                                 else
                                 {
-                                    _logger.LogWarning("{service}:: >24h since last run; waiting for midnight to enable", _serviceName);
+                                    await SafeDisableWaterHeating();
+                                    _logger.LogWarning("{service}:: Disabling water heating >24h since last run; waiting for midnight to enable", _serviceName);
                                 }
                             }
                         }

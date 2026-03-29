@@ -84,13 +84,14 @@ namespace HeatHarmony.Routes
 
                 var delay = request.Delay < 0 ? 0 : request.Delay;
 
-                provider.OverRideTemp(request.Hours, request.Temperature, request.OverRidePrevious, delay);
+                provider.OverRideTemp(request.Hours, request.Temperature, request.QuietMode, request.OverRidePrevious, delay);
 
                 var response = new HeatAutomationOverrideAcceptedResponse
                 {
                     Message = "Override scheduled",
                     Temperature = request.Temperature,
                     Hours = request.Hours,
+                    QuietMode = request.QuietMode,
                     DelayHours = delay,
                     RequestedAt = DateTime.Now
                 };

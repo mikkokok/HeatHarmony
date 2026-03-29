@@ -3,7 +3,7 @@ using HeatHarmony.Workers;
 
 namespace HeatHarmony.Providers
 {
-    public sealed class HeatAutomationWorkerProvider(ILogger<HeatAutomationWorkerProvider> logger, OumanProvider oumanProvider)
+    public sealed class HeatAutomationWorkerProvider(ILogger<HeatAutomationWorkerProvider> logger, OumanProvider oumanProvider, HeishaMonProvider heishaMonProvider)
     {
         private readonly string _serviceName = nameof(HeatAutomationWorkerProvider);
         private readonly object _sync = new();
@@ -21,7 +21,7 @@ namespace HeatHarmony.Providers
         public Task? SetUseWaterBasedOnPriceTask { get; set; }
         public Task? SetInsideTempBasedOnPriceTask { get; set; }
 
-        public void OverRideTemp(int hours, double temp, bool overRidePrevious, int delay = 0)
+        public void OverRideTemp(int hours, double temp, int? quietMode, bool overRidePrevious, int delay = 0)
         {
             lock (_sync)
             {
@@ -38,11 +38,11 @@ namespace HeatHarmony.Providers
                 }
 
                 _overRideCancellationTokenSource = new CancellationTokenSource();
-                _overRideTask = OverRideTask(delay, hours, temp, _overRideCancellationTokenSource.Token);
+                _overRideTask = OverRideTask(delay, hours, temp, quietMode, _overRideCancellationTokenSource.Token);
             }
         }
 
-        private async Task OverRideTask(int delay, int hours, double temp, CancellationToken ct)
+        private async Task OverRideTask(int delay, int hours, double temp, int? quietMode, CancellationToken ct)
         {
             var operationId = Guid.NewGuid();
             try
@@ -56,6 +56,10 @@ namespace HeatHarmony.Providers
                 }
 
                 var previousTemp = oumanProvider.LatestInsideTempDemand;
+                if (quietMode.HasValue)
+                {
+                    await heishaMonProvider.SetQuietMode(quietMode.Value);
+                }
 
                 await oumanProvider.SetInsideTemp(temp);
                 lock (_sync)
