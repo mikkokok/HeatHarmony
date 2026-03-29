@@ -18,6 +18,7 @@ GlobalConfig.ApiDocumentConfig = builder.Configuration.GetRequiredSection("ApiDo
 GlobalConfig.ShellyTRVConfig = builder.Configuration.GetRequiredSection("ShellyTRV").Get<List<GlobalConfig.ShellyTRV>>();
 GlobalConfig.OumanConfig = builder.Configuration.GetRequiredSection("Ouman").Get<GlobalConfig.Ouman>();
 GlobalConfig.OilBurnerShellyUrl = builder.Configuration["OilBurnerShellyUrl"];
+GlobalConfig.ShellyPro3Url = builder.Configuration["ShellyPro3Url"];
 
 builder.Services.Configure<RouteOptions>(options => options.SetParameterPolicy<RegexInlineRouteConstraint>("regex"));
 builder.Services.AddEndpointsApiExplorer();

@@ -274,17 +274,23 @@ namespace HeatHarmony.Workers
             await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
             while (!stoppingToken.IsCancellationRequested)
             {
+                var overrideActive = _heatAutomationWorkerProvider.overRide;
                 var scope = new
                 {
                     inside_cycleUtc = DateTime.UtcNow,
                     inside_outsideTemp = _oumanProvider.LatestOutsideTemp,
-                    inside_insideTemp = _oumanProvider.LatestInsideTemp
+                    inside_insideTemp = _oumanProvider.LatestInsideTemp,
+                    inside_overrideStatus = overrideActive
                 };
                 using (_logger.BeginScope(scope))
                 {
                     try
                     {
-                        if (!IsPriceDataStale())
+                        if (overrideActive)
+                        {
+                            _logger.LogInformation("{service}:: Inside temperature control in override mode, skipping automatic adjustments", _serviceName);
+                        }
+                        else if (!IsPriceDataStale())
                         {
                             await ControlInsideTemp();
                             await Task.Delay(TimeSpan.FromMinutes(15), stoppingToken);
