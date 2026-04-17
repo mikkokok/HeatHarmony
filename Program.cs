@@ -1,5 +1,6 @@
 using HeatHarmony.Config;
 using HeatHarmony.Extensions;
+using HeatHarmony.MQ;
 using HeatHarmony.Providers;
 using HeatHarmony.Routes;
 using HeatHarmony.Routes.Filters;
@@ -14,11 +15,12 @@ GlobalConfig.ApiKey = builder.Configuration["ApiKey"];
 GlobalConfig.PricesUrl = builder.Configuration["PricesUrl"];
 GlobalConfig.HeishaUrl = builder.Configuration["HeishaUrl"];
 GlobalConfig.Shelly3EMUrl = builder.Configuration["Shelly3EMUrl"];
-GlobalConfig.ApiDocumentConfig = builder.Configuration.GetRequiredSection("ApiDocument").Get<GlobalConfig.ApiDocument>()!;
+GlobalConfig.ApiDocumentConfig = builder.Configuration.GetRequiredSection("ApiDocument").Get<GlobalConfig.ApiDocument>();
 GlobalConfig.ShellyTRVConfig = builder.Configuration.GetRequiredSection("ShellyTRV").Get<List<GlobalConfig.ShellyTRV>>();
 GlobalConfig.OumanConfig = builder.Configuration.GetRequiredSection("Ouman").Get<GlobalConfig.Ouman>();
 GlobalConfig.OilBurnerShellyUrl = builder.Configuration["OilBurnerShellyUrl"];
 GlobalConfig.ShellyPro3Url = builder.Configuration["ShellyPro3Url"];
+GlobalConfig.RabbitMQConfig = builder.Configuration.GetRequiredSection("RabbitMQ").Get<GlobalConfig.RabbitMQ>();
 
 builder.Services.Configure<RouteOptions>(options => options.SetParameterPolicy<RegexInlineRouteConstraint>("regex"));
 builder.Services.AddEndpointsApiExplorer();
@@ -53,6 +55,10 @@ builder.Services.AddSingleton<TRVProvider>();
 builder.Services.AddSingleton<EMProvider>(); 
 builder.Services.AddSingleton<OilBurnerProvider>();
 builder.Services.AddSingleton<HeatAutomationWorkerProvider>();
+builder.Services.AddSingleton<Pro3Provider>();
+builder.Services.AddSingleton<MQClient>();
+builder.Services.AddHostedService<MQWorker>();
+builder.Services.AddHostedService<ElectricWorker>();
 
 builder.AddHttpClients();
 var app = builder.Build();

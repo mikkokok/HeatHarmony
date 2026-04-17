@@ -43,6 +43,8 @@ namespace HeatHarmony.Workers
                     worker_cycleId = cycleId,
                     worker_startUtc = DateTime.UtcNow
                 };
+                using var cycleCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                var cycleToken = cycleCts.Token;
                 using (_logger.BeginScope(scope))
                 {
                     try
@@ -50,9 +52,9 @@ namespace HeatHarmony.Workers
                         _heatAutomationWorkerProvider.IsWorkerRunning = true;
                         _logger.LogInformation("{service}:: Running (cycle {cycleId})", _serviceName, cycleId);
 
-                        _heatAutomationWorkerProvider.OumanAndHeishamonSyncTask = SyncOumanAndHeishamon(stoppingToken);
-                        _heatAutomationWorkerProvider.SetUseWaterBasedOnPriceTask = SetUseWaterControlBasedOnPrice(stoppingToken);
-                        _heatAutomationWorkerProvider.SetInsideTempBasedOnPriceTask = SetInsideTempBasedOnPrice(stoppingToken);
+                        _heatAutomationWorkerProvider.OumanAndHeishamonSyncTask = SyncOumanAndHeishamon(cycleToken);
+                        _heatAutomationWorkerProvider.SetUseWaterBasedOnPriceTask = SetUseWaterControlBasedOnPrice(cycleToken);
+                        _heatAutomationWorkerProvider.SetInsideTempBasedOnPriceTask = SetInsideTempBasedOnPrice(cycleToken);
 
                         var finished = await Task.WhenAny(
                             _heatAutomationWorkerProvider.OumanAndHeishamonSyncTask,
@@ -61,6 +63,8 @@ namespace HeatHarmony.Workers
                         );
 
                         _logger.LogWarning("{service}:: One or more tasks completed unexpectedly (cycle {cycleId})", _serviceName, cycleId);
+
+                        await cycleCts.CancelAsync();
 
                         if (finished.IsFaulted)
                         {
@@ -205,10 +209,6 @@ namespace HeatHarmony.Workers
                             _logger.LogInformation("{service}:: Decided to enable water heating (decision: optimal)", _serviceName);
                             await SafeEnableWaterHeating();
                         }
-                        else if (!hasRunEnough)
-                        {
-                            _logger.LogInformation("{service}:: Water heating has not run enough yet (hoursRun: {hoursRun})", _serviceName, hoursRun);
-                        }
                         else
                         {
                             if (!isRunning)
@@ -293,7 +293,6 @@ namespace HeatHarmony.Workers
                         else if (!IsPriceDataStale())
                         {
                             await ControlInsideTemp();
-                            await Task.Delay(TimeSpan.FromMinutes(15), stoppingToken);
                         }
                         else
                         {
@@ -424,7 +423,7 @@ namespace HeatHarmony.Workers
                     return;
                 }
 
-                if (outside >= 15)
+                if (outside >= 10)
                 {
                     await _heishaMonProvider.SetQuietMode(3);
                     if (TimeUtils.IsCurrentTimeInRange(nightPeriod))
@@ -465,7 +464,14 @@ namespace HeatHarmony.Workers
                         _logger.LogInformation("{service}:: Shoulder night window -> max flow", _serviceName);
                         await SetOumanAutoAndMin(50);
                         await SetTRVMaxHeating();
-                        await _heishaMonProvider.SetQuietMode(1);
+                        if (outside > 0)
+                        {
+                            await _heishaMonProvider.SetQuietMode(2);
+                        }
+                        else
+                        {
+                            await _heishaMonProvider.SetQuietMode(1);
+                        }
                     }
                     else
                     {
