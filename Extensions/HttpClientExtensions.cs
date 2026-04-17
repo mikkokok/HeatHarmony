@@ -12,7 +12,9 @@ namespace HeatHarmony.Extensions
                 HttpClientConst.OumanClient,
                 HttpClientConst.HeishaClient,
                 HttpClientConst.ShellyClient,
-                HttpClientConst.Shelly3EMClient
+                HttpClientConst.Shelly3EMClient,
+                HttpClientConst.ShellyPro3Client,
+                HttpClientConst.OilBurnerShellyClient
             };
 
             foreach (var clientName in clientNames)

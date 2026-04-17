@@ -77,7 +77,9 @@ namespace HeatHarmony.Providers
 
         public async Task SetInsideTemp(double newTemp)
         {
-            if (LatestInsideTemp == newTemp)
+            const double epsilon = 0.5; 
+
+            if (Math.Abs(LatestInsideTemp - newTemp) < epsilon)
             {
                 _logger.LogInformation("{service}:: SetInsideTemp called but temp is already {temp}, skipping", _serviceName, newTemp);
                 return;

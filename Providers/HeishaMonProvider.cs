@@ -34,7 +34,7 @@ namespace HeatHarmony.Providers
             HeishaMonHistoryTask = UpdateHeishaMonHistory();
         }
 
-        public async Task UpdateHeishaMonStatus()
+        private async Task UpdateHeishaMonStatus()
         {
             while (true)
             {

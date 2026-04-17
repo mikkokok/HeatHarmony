@@ -9,9 +9,12 @@ namespace HeatHarmony.Config
         public static string? PricesUrl { get; set; }
         public static string? Shelly3EMUrl { get; set; }
         public static string? OilBurnerShellyUrl { get; set; }
+
+        public static string? ShellyPro3Url { get; set; }
         public static ApiDocument? ApiDocumentConfig { get; set; }
         public static List<ShellyTRV>? ShellyTRVConfig { get; set; }
         public static Ouman? OumanConfig { get; set; }
+        public static RabbitMQ? RabbitMQConfig { get; set; }
 
         public class ApiDocument
         {
@@ -46,6 +49,13 @@ namespace HeatHarmony.Config
             public const decimal ModeratePriceThreshold = 0.10m;
             public const decimal ExpensivePriceThreshold = 0.20m;
             public const int EmergencyHeatingHours = 48;
+        }
+        public class RabbitMQ
+        {
+            public required string mqttServer { get; set; }
+            public required string mqttUser { get; set; }
+            public required string mqttPassword { get; set; }
+            public required string mqttTopic { get; set; }
         }
     }
 }

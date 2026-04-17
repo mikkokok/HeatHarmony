@@ -14,7 +14,7 @@ namespace HeatHarmony.Routes.Middlewares
         {
             context.Response.OnStarting(() =>
             {
-                context.Response.Headers["API-Version"] = GlobalConfig.ApiDocumentConfig!.Version;
+                context.Response.Headers["API-Version"] = GlobalConfig.ApiDocumentConfig?.Version ?? "unknown";
                 return Task.CompletedTask;
             });
 
