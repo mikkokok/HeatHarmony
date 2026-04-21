@@ -21,6 +21,7 @@ GlobalConfig.OumanConfig = builder.Configuration.GetRequiredSection("Ouman").Get
 GlobalConfig.OilBurnerShellyUrl = builder.Configuration["OilBurnerShellyUrl"];
 GlobalConfig.ShellyPro3Url = builder.Configuration["ShellyPro3Url"];
 GlobalConfig.RabbitMQConfig = builder.Configuration.GetRequiredSection("RabbitMQ").Get<GlobalConfig.RabbitMQ>();
+GlobalConfig.RestlessFalconConfig = builder.Configuration.GetRequiredSection("RestlessFalcon").Get<GlobalConfig.RestlessFalcon>();
 
 builder.Services.Configure<RouteOptions>(options => options.SetParameterPolicy<RegexInlineRouteConstraint>("regex"));
 builder.Services.AddEndpointsApiExplorer();
@@ -49,6 +50,7 @@ builder.Services.AddSwaggerGen(options =>
 builder.Services.AddHostedService<HeatAutomationWorker>();
 builder.Services.AddSingleton<IRequestProvider, RequestProvider>();
 builder.Services.AddSingleton<HeishaMonProvider>();
+builder.Services.AddSingleton<RestlessFalconProvider>();
 builder.Services.AddSingleton<OumanProvider>();
 builder.Services.AddSingleton<PriceProvider>();
 builder.Services.AddSingleton<TRVProvider>();
@@ -81,5 +83,6 @@ app.MapPriceEndpoints();
 app.MapEmEndPoints();
 app.MapOilBurnerEndPoints();
 app.MapAppStatusEndpoints();
+app.MapPro3Endpoints();
 
 app.Run();

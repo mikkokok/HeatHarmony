@@ -10,24 +10,29 @@ namespace HeatHarmony.Providers
         private readonly string _serviceName;
         private readonly ILogger<PriceProvider> _logger;
         private readonly IRequestProvider _requestProvider;
+        private readonly RestlessFalconProvider _restlessFalcon;
+
         public List<ElectricityPrice> TodayPrices { get; private set; } = [];
         public List<ElectricityPrice> TomorrowPrices { get; private set; } = [];
         public List<LowPriceDateTimeRange> TodayLowPriceTimes { get; private set; } = []; 
         public List<LowPriceDateTimeRange> TomorrowLowPriceTimes { get; private set; } = [];
         public List<LowPriceDateTimeRange> AllLowPriceTimes { get; private set; } = [];
         public LowPriceDateTimeRange NightPeriodTimes { get; private set; } = new();
+        public LowPriceDateTimeRange DayPeriodTimes { get; private set; } = new();
 
         public Task PriceTask { get; private set; }
         private int _priceHour = 15;
 
         private record ParsedPrice(DateTime DateTime, decimal Price, ElectricityPrice Original);
         private record HourlyGroup(DateTime HourStart, List<ParsedPrice> Slots, decimal AveragePrice);
+        private double? _last2WeeksAvgTemp = null;
 
-        public PriceProvider(ILogger<PriceProvider> logger, IRequestProvider requestProvider)
+        public PriceProvider(ILogger<PriceProvider> logger, IRequestProvider requestProvider, RestlessFalconProvider restlessFalconProvider)
         {
             _serviceName = nameof(PriceProvider);
             _logger = logger;
             _requestProvider = requestProvider;
+            _restlessFalcon = restlessFalconProvider;
             PriceTask = UpdatePrices();
         }
 
@@ -91,7 +96,9 @@ namespace HeatHarmony.Providers
                 TodayLowPriceTimes = CalculateLowPriceTimesWithRanks(TodayPrices);
                 TomorrowLowPriceTimes = CalculateLowPriceTimesWithRanks(TomorrowPrices);
                 AllLowPriceTimes = [.. TodayLowPriceTimes, .. TomorrowLowPriceTimes];
+                _last2WeeksAvgTemp = await _restlessFalcon.GetAvgTemperature(14);
                 NightPeriodTimes = GetBestNightPeriod();
+                DayPeriodTimes = GetBestDayPeriod();
             }
             catch (Exception ex)
             {
@@ -225,22 +232,92 @@ namespace HeatHarmony.Providers
             return periods;
         }
 
+        private (int min, int max) GetNightTargetHours()
+        {
+            var hours = _last2WeeksAvgTemp switch
+            {
+                null => (min: 7, max: 10),
+                < -10 => (min: 8, max: 10),
+                < 0 => (min: 7, max: 10),
+                < 5 => (min: 6, max: 9),
+                < 10 => (min: 5, max: 8),
+                < 15 => (min: 4, max: 6),
+                < 20 => (min: 3, max: 5),
+                _ => (min: 2, max: 4)
+            };
+            _logger.LogInformation("{service}:: Night target hours: {min}-{max}h (2-week avg: {temp}°C)",
+                _serviceName, hours.min, hours.max, _last2WeeksAvgTemp?.ToString("F1") ?? "N/A");
+            return hours;
+        }
+
+        private (int min, int max) GetDayTargetHours()
+        {
+            var hours = _last2WeeksAvgTemp switch
+            {
+                null => (min: 3, max: 6),
+                < -10 => (min: 4, max: 6),
+                < 0 => (min: 3, max: 6),
+                < 5 => (min: 3, max: 5),
+                < 10 => (min: 2, max: 4),
+                < 15 => (min: 2, max: 3),
+                < 20 => (min: 1, max: 2),
+                _ => (min: 1, max: 2)
+            };
+            _logger.LogInformation("{service}:: Day target hours: {min}-{max}h (2-week avg: {temp}°C)",
+                _serviceName, hours.min, hours.max, _last2WeeksAvgTemp?.ToString("F1") ?? "N/A");
+            return hours;
+        }
+
         private LowPriceDateTimeRange GetBestNightPeriod()
         {
             var nightWindowStart = DateTime.Today.AddHours(22);          // 22:00 today
-            var nightWindowEnd   = DateTime.Today.AddDays(1).AddHours(8); // 08:00 tomorrow
+            var nightWindowEnd = DateTime.Today.AddDays(1).AddHours(8); // 08:00 tomorrow
+            var (min, max) = GetNightTargetHours();
+            return GetPeriod(nightWindowStart, nightWindowEnd, minTargetHours: min, maxTargetHours: max);
+        }
 
+        private LowPriceDateTimeRange GetBestDayPeriod()
+        {
+            var useTomorrow = TomorrowPrices.Count > 0 && DateTime.Now.Hour >= 12;
+            var baseDate = useTomorrow ? DateTime.Today.AddDays(1) : DateTime.Today;
+
+            var dayWindowStart = baseDate.AddHours(8);  // 08:00
+            var dayWindowEnd = baseDate.AddHours(22);   // 22:00
+
+            if (useTomorrow)
+            {
+                _logger.LogInformation("{service}:: Calculating day period for tomorrow ({date:yyyy-MM-dd})", _serviceName, baseDate);
+            }
+
+            var (min, max) = GetDayTargetHours();
+            return GetPeriod(dayWindowStart, dayWindowEnd, minTargetHours: min, maxTargetHours: max);
+        }
+
+        private LowPriceDateTimeRange GetPeriod(DateTime windowStart, DateTime windowEnd, int minTargetHours, int maxTargetHours)
+        {
+            var windowHours = (windowEnd - windowStart).TotalHours;
             var defaultPeriod = new LowPriceDateTimeRange
             {
-                Start = nightWindowStart,
-                End = nightWindowStart.AddHours(10) > nightWindowEnd ? nightWindowEnd : nightWindowStart.AddHours(10),
+                Start = windowStart,
+                End = windowStart.AddHours(Math.Min(maxTargetHours, windowHours)),
                 AveragePrice = 0,
                 Rank = 0
             };
 
-            if (TodayPrices.Count == 0 || TomorrowPrices.Count == 0)
+            bool spansMidnight = windowEnd.Date > windowStart.Date;
+            bool isTomorrowWindow = windowStart.Date > DateTime.Today;
+
+            if (TodayPrices.Count == 0 && !isTomorrowWindow)
             {
-                _logger.LogWarning($"{_serviceName}:: Insufficient price data for night period calculation - need both today and tomorrow");
+                _logger.LogWarning("{service}:: Insufficient price data for period {start:HH:mm}-{end:HH:mm} calculation",
+                    _serviceName, windowStart, windowEnd);
+                return defaultPeriod;
+            }
+
+            if ((spansMidnight || isTomorrowWindow) && TomorrowPrices.Count == 0)
+            {
+                _logger.LogWarning("{service}:: Insufficient price data for period {start:HH:mm}-{end:HH:mm} calculation - need tomorrow prices",
+                    _serviceName, windowStart, windowEnd);
                 return defaultPeriod;
             }
 
@@ -249,47 +326,53 @@ namespace HeatHarmony.Providers
             foreach (var price in TodayPrices)
             {
                 if (DateTime.TryParseExact(price.date, GlobalConst.PriceTimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt)
-                    && dt >= nightWindowStart && dt < DateTime.Today.AddDays(1))
+                    && dt >= windowStart && dt < windowEnd)
                 {
                     TryAddPrice(price, combinedPrices);
                 }
             }
 
-            foreach (var price in TomorrowPrices)
+            if (spansMidnight || isTomorrowWindow)
             {
-                if (DateTime.TryParseExact(price.date, GlobalConst.PriceTimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt)
-                    && dt >= DateTime.Today.AddDays(1) && dt < nightWindowEnd)
+                foreach (var price in TomorrowPrices)
                 {
-                    TryAddPrice(price, combinedPrices);
+                    if (DateTime.TryParseExact(price.date, GlobalConst.PriceTimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt)
+                        && dt >= windowStart && dt < windowEnd)
+                    {
+                        TryAddPrice(price, combinedPrices);
+                    }
                 }
             }
 
-            if (combinedPrices.Count < 24)
+            var minSlotsRequired = minTargetHours * 4;
+            if (combinedPrices.Count < minSlotsRequired)
             {
-                _logger.LogWarning($"{_serviceName}:: Insufficient night price data (got {combinedPrices.Count} slots, need ≥24). Returning default 10h window.");
+                _logger.LogWarning("{service}:: Insufficient price data for period {start:HH:mm}-{end:HH:mm} (got {count} slots, need ≥{min}). Returning default.",
+                    _serviceName, windowStart, windowEnd, combinedPrices.Count, minSlotsRequired);
                 return defaultPeriod;
             }
 
             combinedPrices = [.. combinedPrices.OrderBy(p => p.DateTime)];
 
-            _logger.LogInformation($"{_serviceName}:: Night window slot span {combinedPrices.First().DateTime:yyyy-MM-dd HH:mm} -> {combinedPrices.Last().DateTime:yyyy-MM-dd HH:mm} ({combinedPrices.Count} slots)");
+            _logger.LogInformation("{service}:: Period {start:HH:mm}-{end:HH:mm} slot span {first:yyyy-MM-dd HH:mm} -> {last:yyyy-MM-dd HH:mm} ({count} slots)",
+                _serviceName, windowStart, windowEnd, combinedPrices.First().DateTime, combinedPrices.Last().DateTime, combinedPrices.Count);
 
-            return FindOptimalNightPeriod(combinedPrices) ?? defaultPeriod;
+            return FindOptimalPeriod(combinedPrices, minTargetHours, maxTargetHours) ?? defaultPeriod;
         }
 
-        private LowPriceDateTimeRange? FindOptimalNightPeriod(List<ParsedPrice> nightPrices)
+        private LowPriceDateTimeRange? FindOptimalPeriod(List<ParsedPrice> prices, int minTargetHours, int maxTargetHours)
         {
             var candidates = new List<LowPriceDateTimeRange>();
 
-            for (int targetHours = 7; targetHours <= 10; targetHours++)
+            for (int targetHours = minTargetHours; targetHours <= maxTargetHours; targetHours++)
             {
                 int slotsNeeded = targetHours * 4;
-                if (nightPrices.Count < slotsNeeded)
+                if (prices.Count < slotsNeeded)
                     break;
 
-                for (int startIndex = 0; startIndex <= nightPrices.Count - slotsNeeded; startIndex++)
+                for (int startIndex = 0; startIndex <= prices.Count - slotsNeeded; startIndex++)
                 {
-                    var window = nightPrices.Skip(startIndex).Take(slotsNeeded).ToList();
+                    var window = prices.Skip(startIndex).Take(slotsNeeded).ToList();
                     if (!IsContinuousPeriod(window))
                         continue;
 
@@ -309,7 +392,7 @@ namespace HeatHarmony.Providers
 
             if (candidates.Count == 0)
             {
-                _logger.LogWarning($"{_serviceName}:: No continuous night period candidates found");
+                _logger.LogWarning($"{_serviceName}:: No continuous period candidates found");
                 return null;
             }
 
@@ -321,7 +404,7 @@ namespace HeatHarmony.Providers
 
             best.Rank = 1;
 
-            _logger.LogInformation($"{_serviceName}:: Best night period: {best.Start:HH:mm}-{best.End:HH:mm} " +
+            _logger.LogInformation($"{_serviceName}:: Best period: {best.Start:HH:mm}-{best.End:HH:mm} " +
                                    $"({TimeUtils.GetHoursInRange(best):F1}h) avg {best.AveragePrice:F4}");
 
             return best;

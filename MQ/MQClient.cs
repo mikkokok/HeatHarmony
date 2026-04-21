@@ -82,7 +82,6 @@ namespace HeatHarmony.MQ
                         CumulativePowerYield = consumptionValue;
                         break;
                     default:
-                        _logger.LogInformation("{ServiceName}:: Received message {Payload} in {Topic}",_serviceName, payload,applicationMessage.Topic);
                         break;
                 }
             }

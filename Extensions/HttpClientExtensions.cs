@@ -1,4 +1,5 @@
 ﻿using HeatHarmony.Config;
+using HeatHarmony.Helpers;
 
 namespace HeatHarmony.Extensions
 {
@@ -22,11 +23,21 @@ namespace HeatHarmony.Extensions
                 builder.AddStandardHttpClient(clientName);
             }
 
+            builder.Services.AddHttpClient(HttpClientConst.RestlessFalconClient, (client) => { client.Timeout = TimeSpan.FromSeconds(30); })
+                .ConfigurePrimaryHttpMessageHandler(provider =>
+            {
+                return new HttpClientHandler
+                {
+#pragma warning disable
+                    ServerCertificateCustomValidationCallback = CertificateValidator.ValidateCertificate
+                };
+            });
+
             return builder;
         }
 
         private static IHostApplicationBuilder AddStandardHttpClient(
-            this IHostApplicationBuilder builder, 
+            this IHostApplicationBuilder builder,
             string clientName)
         {
             builder.Services.AddHttpClient(clientName, client =>
@@ -40,5 +51,6 @@ namespace HeatHarmony.Extensions
 
             return builder;
         }
+
     }
 }

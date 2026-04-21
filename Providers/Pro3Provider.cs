@@ -1,4 +1,5 @@
 ﻿using HeatHarmony.Config;
+using HeatHarmony.DTO;
 using HeatHarmony.Models;
 
 namespace HeatHarmony.Providers
@@ -18,7 +19,7 @@ namespace HeatHarmony.Providers
         public DateTime? OverrideUntil { get; private set; }
         public int? OverrideOutputAmount { get; private set; }
         public bool? OverrideOutputState { get; private set; }
-
+        public List<HarmonyChange> Changes { get; private set; } = [];
         public Pro3Provider(ILogger<Pro3Provider> logger, IRequestProvider requestProvider)
         {
             _logger = logger;
@@ -27,13 +28,18 @@ namespace HeatHarmony.Providers
             Pro3StatusTask = UpdatePro3Status();
         }
 
+        public List<Pro3StatusResponse> GetDeviceStatus()
+        {
+            return _devices;
+        }
+
         private async Task UpdatePro3Status()
         {
             while (true)
             {
                 try
                 {
-                    await GetDeviceStatus();
+                    await UpdateDeviceStatus();
                 }
                 catch (Exception ex)
                 {
@@ -43,7 +49,7 @@ namespace HeatHarmony.Providers
             }
         }
 
-        public async Task GetDeviceStatus()
+        private async Task UpdateDeviceStatus()
         {
             foreach (var deviceId in deviceIds)
             {
@@ -53,7 +59,6 @@ namespace HeatHarmony.Providers
                 UpdateDeviceStatus(result);
                 _logger.LogInformation("{ServiceName}:: GetDeviceStatus for device {DeviceId} returned {Output}", _serviceName, deviceId, result.output);
             }
-            await Task.Delay(TimeSpan.FromMinutes(5));
         }
 
         public async Task SetOutput(int outputAmount, bool output)
@@ -222,10 +227,17 @@ namespace HeatHarmony.Providers
             _logger.LogInformation("{ServiceName}:: SetDeviceOutput called for devices {DeviceIds} with output {Output}", _serviceName, string.Join(", ", ids), output);
             foreach (var deviceId in ids)
             {
-                var url = GlobalConfig.ShellyPro3Url + $"Switch.Set?id={deviceId}&on={output}";
+                var url = GlobalConfig.ShellyPro3Url + $"Switch.Set?id={deviceId}&on={output.ToString().ToLowerInvariant()}";
                 var result = await _requestProvider.GetAsync<Pro3SetResponse>(HttpClientConst.ShellyPro3Client, url)
                     ?? throw new Exception($"{_serviceName}:: SetDeviceOutput returned null");
                 _logger.LogInformation("{ServiceName}:: SetDeviceOutput for device {DeviceId} returned was on {WasOn}", _serviceName, deviceId, result.was_on);
+                Changes.Add(new HarmonyChange
+                {
+                    Time = DateTime.Now,
+                    Provider = Provider.Pro3,
+                    ChangeType = HarmonyChangeType.Pro3OutputChange,
+                    Description = $"SetDeviceOutput set to {output} for device {deviceId} returned was on {result.was_on}"
+                });
             }
         }
     }

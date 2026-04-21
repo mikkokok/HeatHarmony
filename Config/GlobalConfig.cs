@@ -15,6 +15,7 @@ namespace HeatHarmony.Config
         public static List<ShellyTRV>? ShellyTRVConfig { get; set; }
         public static Ouman? OumanConfig { get; set; }
         public static RabbitMQ? RabbitMQConfig { get; set; }
+        public static RestlessFalcon? RestlessFalconConfig { get; set; }
 
         public class ApiDocument
         {
@@ -26,6 +27,7 @@ namespace HeatHarmony.Config
         {
             public required string Name { get; set; }
             public required string IP { get; set; }
+            public bool Summermode { get; set; }
             public required DateTime UpdatedAt { get; set; }
             public required TRVStatusEnum Status { get; set; }
 
@@ -56,6 +58,12 @@ namespace HeatHarmony.Config
             public required string mqttUser { get; set; }
             public required string mqttPassword { get; set; }
             public required string mqttTopic { get; set; }
+        }
+
+        public class RestlessFalcon
+        {
+            public required string Url { get; set; }
+            public required string SslThumbprint { get; set; }
         }
     }
 }

@@ -18,7 +18,6 @@ namespace HeatHarmony.Workers
         private const decimal TransferFeePerKwh = 0.05m;
         private const double Phase2PowerKw = 4.0;
         private const double Phase3PowerKw = 6.0;
-        private const double MaxGridImportKw = 2.0;
 
         public ElectricWorker(ILogger<ElectricWorker> logger, Pro3Provider pro3Provider, MQClient mQClient, PriceProvider priceProvider)
         {
@@ -34,8 +33,8 @@ namespace HeatHarmony.Workers
             _logger.LogInformation("{ServiceName}:: Started", _serviceName);
 
             int currentOutputPhases = 0;
-            var lastSwitchUtc = DateTime.MinValue;
-            var minSwitchInterval = TimeSpan.FromMinutes(30);
+            var lastSwitchTime = DateTime.MinValue;
+            var minSwitchInterval = TimeSpan.FromMinutes(15);
 
             while (!stoppingToken.IsCancellationRequested)
             {
@@ -43,7 +42,7 @@ namespace HeatHarmony.Workers
                 var scope = new
                 {
                     electric_cycleId = cycleId,
-                    electric_cycleUtc = DateTime.UtcNow,
+                    electric_cycleTime = DateTime.Now,
                     electric_mqStatus = _mQClient.Status,
                     electric_actualConsumption = _mQClient.ActualConsumption,
                     electric_actualReturndelivery = _mQClient.ActualReturndelivery
@@ -62,7 +61,7 @@ namespace HeatHarmony.Workers
                                 _logger.LogWarning("{service}:: MQ client not connected, turning electric load off (cycle {cycleId})", _serviceName, cycleId);
                                 await _pro3Provider.SetOutput(3, false);
                                 currentOutputPhases = 0;
-                                lastSwitchUtc = DateTime.UtcNow;
+                                lastSwitchTime = DateTime.Now;
                             }
 
                             await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken);
@@ -77,7 +76,7 @@ namespace HeatHarmony.Workers
                             {
                                 _logger.LogWarning("{service}:: No current price available, turning electric load off (cycle {cycleId})", _serviceName, cycleId);
                                 await _pro3Provider.SetOutput(3, false);
-                                lastSwitchUtc = DateTime.UtcNow;
+                                lastSwitchTime = DateTime.Now;
                             }
 
                             await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
@@ -91,12 +90,12 @@ namespace HeatHarmony.Workers
                             continue;
                         }
 
-                        var desiredOutputPhases = CalculateDesiredOutputPhases(currentPrice.Value);
+                        var desiredOutputPhases = CalculateDesiredOutputPhases(currentPrice.Value, currentOutputPhases);
 
                         if (desiredOutputPhases != currentOutputPhases)
                         {
-                            var nowUtc = DateTime.UtcNow;
-                            var timeSinceLastSwitch = nowUtc - lastSwitchUtc;
+                            var now = DateTime.Now;
+                            var timeSinceLastSwitch = now - lastSwitchTime;
 
                             if (timeSinceLastSwitch < minSwitchInterval && desiredOutputPhases > 0 && currentOutputPhases > 0)
                             {
@@ -118,7 +117,7 @@ namespace HeatHarmony.Workers
                                     await _pro3Provider.SetOutput(desiredOutputPhases, true);
                                 }
 
-                                lastSwitchUtc = nowUtc;
+                                lastSwitchTime = now;
                             }
                         }
                         else
@@ -156,7 +155,7 @@ namespace HeatHarmony.Workers
             _logger.LogInformation("{service}:: Stopped", _serviceName);
         }
 
-        private int CalculateDesiredOutputPhases(decimal currentPrice)
+        private int CalculateDesiredOutputPhases(decimal currentPrice, int currentOutputPhases)
         {
             if (currentPrice + TransferFeePerKwh <= 0)
             {
@@ -164,14 +163,34 @@ namespace HeatHarmony.Workers
                 return 3;
             }
 
+            if (IdealPricePerKwh < currentPrice)
+            {
+                return 0;
+            }
+
+            double MaxGridImportKw = currentPrice switch 
+            {
+                < 0 => 2.0,
+                _ => 1.0
+            };
+
             var exportKw = _mQClient.ActualReturndelivery;
             var importKw = _mQClient.ActualConsumption;
-            var realKwBalance = exportKw - importKw;
+
+            var currentPro3LoadKw = currentOutputPhases switch
+            {
+                2 => Phase2PowerKw,
+                3 => Phase3PowerKw,
+                _ => 0.0
+            };
+
+            var realKwBalance = exportKw - importKw + currentPro3LoadKw;
             var surplusKw = Math.Max(realKwBalance, 0.0);
 
             var availableKw = surplusKw + MaxGridImportKw;
 
-            _logger.LogDebug("{service}:: Price={price:F4}, realBalance={realBalance:F2}kW, import={import:F2}kW, surplusExport={export:F2}kW, available={available:F2}kW", _serviceName, currentPrice, realKwBalance, importKw, exportKw, availableKw);
+            _logger.LogDebug("{service}:: Price={price:F4}, pro3Load={pro3:F1}kW, realBalance={realBalance:F2}kW, import={import:F2}kW, surplusExport={export:F2}kW, available={available:F2}kW",
+                _serviceName, currentPrice, currentPro3LoadKw, realKwBalance, importKw, exportKw, availableKw);
 
             if (availableKw >= Phase3PowerKw)
             {

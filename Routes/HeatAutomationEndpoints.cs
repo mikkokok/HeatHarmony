@@ -121,6 +121,13 @@ namespace HeatHarmony.Routes
             .WithName("CancelOverrideTemp")
             .Produces<HeatAutomationOverrideCancelledResponse>(StatusCodes.Status200OK)
             .Produces<ErrorResponse>(StatusCodes.Status409Conflict);
+
+            heat.MapGet("/heatperiod", ([FromServices] HeatAutomationWorkerProvider provider) =>
+            {
+                return Results.Ok(provider.HeatingPeriodSource);
+            })
+            .WithName("GetHeatingPeriodSource")
+            .Produces<string>(StatusCodes.Status200OK);
         }
     }
 }
