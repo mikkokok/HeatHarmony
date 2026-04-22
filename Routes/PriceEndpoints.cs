@@ -75,7 +75,7 @@ namespace HeatHarmony.Routes
 
             prices.MapGet("/nightperiod", ([FromServices] PriceProvider priceProvider) =>
             {
-                var response = new NightPeriodResponse
+                var response = new HeatingPeriodResponse
                 {
                     Period = priceProvider.NightPeriodTimes
                 };
@@ -83,7 +83,18 @@ namespace HeatHarmony.Routes
                 return Results.Ok(response);
             })
             .WithName("GetNightPeriod")
-            .Produces<NightPeriodResponse>(StatusCodes.Status200OK);
+            .Produces<HeatingPeriodResponse>(StatusCodes.Status200OK);
+
+            prices.MapGet("/dayperiod", ([FromServices] PriceProvider priceProvider) =>
+            {
+                var response = new HeatingPeriodResponse
+                {
+                    Period = priceProvider.DayPeriodTimes
+                };
+                return Results.Ok(response);
+            })
+            .WithName("GetDayPeriod")
+            .Produces<HeatingPeriodResponse>(StatusCodes.Status200OK);
         }
     }
 }

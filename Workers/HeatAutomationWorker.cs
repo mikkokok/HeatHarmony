@@ -17,6 +17,7 @@ namespace HeatHarmony.Workers
         private readonly TRVProvider _tRVProvider;
         private readonly OilBurnerProvider _oilBurnerProvider;
         private readonly DateTime _startTime = DateTime.UtcNow;
+        private LowPriceDateTimeRange? _lockedHeatingPeriod;
 
         public HeatAutomationWorker(ILogger<HeatAutomationWorker> logger, HeishaMonProvider heishaMonProvider,
             OumanProvider oumanProvider, HeatAutomationWorkerProvider heatAutomationWorkerProvider, PriceProvider priceProvider, EMProvider eMProvider, TRVProvider tRVProvider, OilBurnerProvider oilBurnerProvider)
@@ -380,9 +381,30 @@ namespace HeatHarmony.Workers
             var outside = _oumanProvider.LatestOutsideTemp;
             var inside = _oumanProvider.LatestInsideTemp;
             var nightPeriod = _priceProvider.NightPeriodTimes;
+            var dayPeriod = _priceProvider.DayPeriodTimes;
             var nightHours = TimeUtils.GetHoursInRange(nightPeriod);
+            var dayHours = TimeUtils.GetHoursInRange(dayPeriod);
+            var (preferredPeriod, preferredHours, preferredSource) = GetPreferredHeatingPeriod(nightPeriod, nightHours, dayPeriod, dayHours);
+
+            if (_lockedHeatingPeriod != null)
+            {
+                if (TimeUtils.IsCurrentTimeInRange(_lockedHeatingPeriod))
+                {
+                    _logger.LogDebug("{service}:: Using locked heating period {start:HH:mm}-{end:HH:mm}", _serviceName, _lockedHeatingPeriod.Start, _lockedHeatingPeriod.End);
+                }
+                else
+                {
+                    _logger.LogInformation("{service}:: Locked heating period {start:HH:mm}-{end:HH:mm} expired, releasing", _serviceName, _lockedHeatingPeriod.Start, _lockedHeatingPeriod.End);
+                    _lockedHeatingPeriod = null;
+                }
+            }
+
+            var heatingPeriod = _lockedHeatingPeriod ?? preferredPeriod;
+            var heatingPeriodHours = _lockedHeatingPeriod != null ? TimeUtils.GetHoursInRange(_lockedHeatingPeriod) : preferredHours;
+            var heatingPeriodSource = _lockedHeatingPeriod != null ? "locked" : preferredSource;
             var bestHours = bestPricePeriod != null ? TimeUtils.GetHoursInRange(bestPricePeriod) : 0;
             var isOilburnerActive = _oilBurnerProvider.IsEnabled;
+            _heatAutomationWorkerProvider.HeatingPeriodSource = heatingPeriodSource;
 
             var scope = new
             {
@@ -390,6 +412,9 @@ namespace HeatHarmony.Workers
                 inside_bestPeriodRank = bestPricePeriod?.Rank,
                 inside_bestPeriodHours = bestHours,
                 inside_nightPeriodHours = nightHours,
+                inside_dayPeriodHours = dayHours,
+                inside_heatingPeriodSource = heatingPeriodSource,
+                inside_heatingPeriodHours = heatingPeriodHours,
                 inside_outsideTemp = outside,
                 inside_insideTemp = inside,
                 inside_oilBurnerActive = isOilburnerActive
@@ -426,10 +451,16 @@ namespace HeatHarmony.Workers
                 if (outside >= 10)
                 {
                     await _heishaMonProvider.SetQuietMode(3);
-                    if (TimeUtils.IsCurrentTimeInRange(nightPeriod))
+                    if (TimeUtils.IsCurrentTimeInRange(heatingPeriod))
                     {
-                        _logger.LogInformation("{service}:: Summer + night window (hours={hours})", _serviceName, nightHours);
-                        if (nightHours > 8)
+                        if (_lockedHeatingPeriod == null)
+                        {
+                            _lockedHeatingPeriod = heatingPeriod;
+                            _logger.LogInformation("{service}:: Locking {source} heating period {start:HH:mm}-{end:HH:mm}",
+                                _serviceName, heatingPeriodSource, heatingPeriod.Start, heatingPeriod.End);
+                        }
+                        _logger.LogInformation("{service}:: Summer + {source} heating window (hours={hours})", _serviceName, heatingPeriodSource, heatingPeriodHours);
+                        if (heatingPeriodHours > 8)
                         {
                             await SetOumanAutoAndMin(midtemp);
                             await SetTRVAuto();
@@ -442,7 +473,7 @@ namespace HeatHarmony.Workers
                     }
                     else
                     {
-                        _logger.LogInformation("{service}:: Summer outside night window -> minimal flow", _serviceName);
+                        _logger.LogInformation("{service}:: Summer outside heating window -> minimal flow", _serviceName);
                         await SetOumanAutoAndMin(mintemp);
                         await SetTRVAuto();
                     }
@@ -459,9 +490,15 @@ namespace HeatHarmony.Workers
                         await _oumanProvider.SetInsideTemp(22);
                         await _heishaMonProvider.SetQuietMode(3);
                     }
-                    else if (TimeUtils.IsCurrentTimeInRange(nightPeriod))
+                    else if (TimeUtils.IsCurrentTimeInRange(heatingPeriod))
                     {
-                        _logger.LogInformation("{service}:: Shoulder night window -> max flow", _serviceName);
+                        if (_lockedHeatingPeriod == null)
+                        {
+                            _lockedHeatingPeriod = heatingPeriod;
+                            _logger.LogInformation("{service}:: Locking {source} heating period {start:HH:mm}-{end:HH:mm}",
+                                _serviceName, heatingPeriodSource, heatingPeriod.Start, heatingPeriod.End);
+                        }
+                        _logger.LogInformation("{service}:: Shoulder {source} heating window -> max flow", _serviceName, heatingPeriodSource);
                         await SetOumanAutoAndMin(50);
                         await SetTRVMaxHeating();
                         if (outside > 0)
@@ -549,6 +586,32 @@ namespace HeatHarmony.Workers
                 await SetTRVAuto();
                 await _heishaMonProvider.SetQuietMode(0);
             }
+        }
+
+        private (LowPriceDateTimeRange period, double hours, string source) GetPreferredHeatingPeriod(
+            LowPriceDateTimeRange nightPeriod, double nightHours,
+            LowPriceDateTimeRange dayPeriod, double dayHours)
+        {
+            const decimal nightPreferenceTolerance = 0.01m;
+
+            var nightValid = nightHours > 0 && nightPeriod.AveragePrice > 0;
+            var dayValid = dayHours > 0 && dayPeriod.AveragePrice > 0;
+
+            if (!dayValid)
+                return (nightPeriod, nightHours, "night");
+
+            if (!nightValid)
+                return (dayPeriod, dayHours, "day");
+
+            if (dayPeriod.AveragePrice < nightPeriod.AveragePrice - nightPreferenceTolerance)
+            {
+                _logger.LogInformation(
+                    "{service}:: Day period ({dayAvg:F4}) is more than {tolerance} €/kWh cheaper than night ({nightAvg:F4}), preferring day",
+                    _serviceName, dayPeriod.AveragePrice, nightPreferenceTolerance, nightPeriod.AveragePrice);
+                return (dayPeriod, dayHours, "day");
+            }
+
+            return (nightPeriod, nightHours, "night");
         }
 
         private bool IsEmergencyHeatingNeeded() => TimeUtils.HoursSince(_emProvider.LastEnabled) >= 48;

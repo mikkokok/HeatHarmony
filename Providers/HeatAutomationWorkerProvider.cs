@@ -20,6 +20,7 @@ namespace HeatHarmony.Providers
         public Task? OumanAndHeishamonSyncTask { get; set; }
         public Task? SetUseWaterBasedOnPriceTask { get; set; }
         public Task? SetInsideTempBasedOnPriceTask { get; set; }
+        public string HeatingPeriodSource = "None";
 
         public void OverRideTemp(int hours, double temp, int? quietMode, bool overRidePrevious, int delay = 0)
         {

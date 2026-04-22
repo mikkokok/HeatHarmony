@@ -9,5 +9,6 @@
         public const string Shelly3EMClient = "Shelly3EMClient";
         public const string OilBurnerShellyClient = "OilBurnerShellyClient";
         public const string ShellyPro3Client = "ShellyPro3Client";
+        public const string RestlessFalconClient = "RestlessFalcon";
     }
 }

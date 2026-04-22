@@ -7,6 +7,7 @@
         TRV,
         Heisha,
         EM,
-        OilBurner
+        OilBurner,
+        Pro3
     }
 }

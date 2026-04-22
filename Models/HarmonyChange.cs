@@ -23,6 +23,7 @@
         SetTargetTemp,
         SetQuietMode,
         OilBurnerEnable,
-        OilBurnerDisable
+        OilBurnerDisable,
+        Pro3OutputChange
     }
 }

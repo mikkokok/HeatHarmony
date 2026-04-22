@@ -9,22 +9,50 @@ namespace HeatHarmony.Providers
         private readonly string _serviceName;
         private readonly ILogger<TRVProvider> _logger;
         private readonly IRequestProvider _requestProvider;
-        public Task TRVTask { get; private set; }
-
+        private readonly RestlessFalconProvider _restlessFalconProvider;
         private readonly List<ShellyTRV> _devices = [];
+        private const double SummermodeThreshold = 5.0;
+        private const int SummerMaxLevel = 20;
 
-        public TRVProvider(ILogger<TRVProvider> logger, IRequestProvider requestProvider)
+        public Task TRVTask { get; private set; }
+        public Task SummermodeTask { get; private set; }
+        private double? LastAvgTemp { get; set; }
+        private bool IsSummer = true;
+
+        public TRVProvider(ILogger<TRVProvider> logger, IRequestProvider requestProvider, RestlessFalconProvider restlessFalconProvider)
         {
             _serviceName = nameof(TRVProvider);
             _logger = logger;
             _requestProvider = requestProvider;
+            _restlessFalconProvider = restlessFalconProvider;
             _devices = ShellyTRVConfig ?? throw new Exception("No TRV devices in config!");
             TRVTask = HandleDeviceStatusUpdates();
+            SummermodeTask = UpdateSummermodeLoop();
         }
 
         public List<ShellyTRV> GetDevices()
         {
             return _devices;
+        }
+
+        private async Task UpdateSummermodeLoop()
+        {
+            await Task.Delay(TimeSpan.FromMinutes(15));
+            while (true)
+            {
+                try
+                {
+                    var avgTemp = await _restlessFalconProvider.GetAvgTemperature(14);
+                    LastAvgTemp = avgTemp;
+                    IsSummer = LastAvgTemp.HasValue && LastAvgTemp.Value >= SummermodeThreshold;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "{service}:: Error in UpdateSummermodeLoop", _serviceName);
+                }
+
+                await Task.Delay(TimeSpan.FromHours(24));
+            }
         }
 
         public async Task HandleDeviceStatusUpdates()
@@ -50,18 +78,35 @@ namespace HeatHarmony.Providers
         {
             foreach (var trv in _devices)
             {
-                if (trv.LatestLevel == level)
+                var effectiveLevel = level;
+
+                if (IsSummer && trv.Summermode && level > SummerMaxLevel)
                 {
-                    _logger.LogInformation($"{_serviceName}:: SetHeating for {trv.Name} already at level {level}, skipping");
+                    _logger.LogInformation("{service}:: {name} is in summermode, capping level {requested} -> {max}", _serviceName, trv.Name, level, SummerMaxLevel);
+                    effectiveLevel = SummerMaxLevel;
+                }
+
+                if (trv.LatestLevel == effectiveLevel)
+                {
+                    _logger.LogDebug("{service}:: {name} already at level {level}, skipping",
+                        _serviceName, trv.Name, effectiveLevel);
                     continue;
                 }
-                var url = $"http://{trv.IP}/thermostat/0?pos={level}";
-                var result = await _requestProvider.GetAsync<TRVThermoResponse>(HttpClientConst.ShellyClient, url)
-                    ?? throw new Exception($"{_serviceName}:: SetHeating returned null for {trv.Name}");
-                trv.LatestLevel = result.pos;
+                try
+                {
+                    var url = $"http://{trv.IP}/thermostat/0?pos={effectiveLevel}";
+                    var result = await _requestProvider.GetAsync<TRVThermoResponse>(HttpClientConst.ShellyClient, url)
+                        ?? throw new Exception($"{_serviceName}:: SetHeating returned null for {trv.Name}");
+                    trv.LatestLevel = result.pos;
+                    trv.Status = TRVStatusEnum.Ok;
+                    _logger.LogInformation("{service}:: SetHeating to {level} for {name} succeeded", _serviceName, effectiveLevel, trv.Name);
+                }
+                catch (Exception)
+                {
+                    _logger.LogError("{service}:: SetHeating to {level} for {name} failed", _serviceName, effectiveLevel, trv.Name);
+                    trv.Status = TRVStatusEnum.Error;
+                }
                 trv.UpdatedAt = DateTime.Now;
-                trv.Status = TRVStatusEnum.Ok;
-                _logger.LogInformation($"{_serviceName}:: SetHeating to {level} for {trv.Name} succeeded");
             }
         }
 
