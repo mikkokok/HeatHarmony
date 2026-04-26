@@ -1,6 +1,7 @@
 ﻿using HeatHarmony.Config;
 using HeatHarmony.DTO;
 using HeatHarmony.Models;
+using Newtonsoft.Json.Bson;
 
 namespace HeatHarmony.Providers
 {
@@ -170,13 +171,32 @@ namespace HeatHarmony.Providers
             {
                 case 1:
                     await SetDeviceOutput([0], output);
+                    UpdateDeviceOutput([0], output);
                     break;
                 case 2:
                     await SetDeviceOutput([0, 1], output);
+                    UpdateDeviceOutput([0, 1], output);
                     break;
                 case 3:
                     await SetDeviceOutput([0, 1, 2], output);
+                    UpdateDeviceOutput([0, 1, 2], output);
                     break;
+            }
+        }
+
+        private void UpdateDeviceOutput(int[] ids, bool output)
+        {
+            foreach (var deviceId in ids)
+            {
+                var device = _devices.FirstOrDefault(d => d.id == deviceId);
+                if (device != null)
+                {
+                    device.output = output;
+                }
+                else
+                {
+                    _logger.LogError("{ServiceName}:: UpdateDeviceOutput could not find device with id {DeviceId} to update output.", _serviceName, deviceId);;
+                }
             }
         }
 

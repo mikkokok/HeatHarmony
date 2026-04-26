@@ -84,5 +84,6 @@ app.MapEmEndPoints();
 app.MapOilBurnerEndPoints();
 app.MapAppStatusEndpoints();
 app.MapPro3Endpoints();
+app.MapRestlessFalconEndpoints();
 
 app.Run();

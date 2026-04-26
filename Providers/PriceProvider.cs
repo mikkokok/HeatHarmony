@@ -254,14 +254,14 @@ namespace HeatHarmony.Providers
         {
             var hours = _last2WeeksAvgTemp switch
             {
-                null => (min: 3, max: 6),
+                null => (min: 4, max: 6),
                 < -10 => (min: 4, max: 6),
-                < 0 => (min: 3, max: 6),
-                < 5 => (min: 3, max: 5),
-                < 10 => (min: 2, max: 4),
-                < 15 => (min: 2, max: 3),
-                < 20 => (min: 1, max: 2),
-                _ => (min: 1, max: 2)
+                < 0 => (min: 4, max: 6),
+                < 5 => (min: 4, max: 5),
+                < 10 => (min: 4, max: 5),
+                < 15 => (min: 3, max: 5),
+                < 20 => (min: 2, max: 3),
+                _ => (min: 2, max: 3)
             };
             _logger.LogInformation("{service}:: Day target hours: {min}-{max}h (2-week avg: {temp}°C)",
                 _serviceName, hours.min, hours.max, _last2WeeksAvgTemp?.ToString("F1") ?? "N/A");
