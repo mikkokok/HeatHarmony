@@ -8,8 +8,7 @@ namespace HeatHarmony.Providers
         private readonly string _serviceName = nameof(RestlessFalconProvider);
         private readonly ILogger<RestlessFalconProvider> _logger = logger;
         private readonly IRequestProvider _requestProvider = requestProvider;
-        private double? _cachedAvgTemp;
-        private DateTime _cachedAt = DateTime.MinValue;
+        private readonly Dictionary<int, (double value, DateTime cachedAt)> _cache = [];
         private static readonly TimeSpan CacheDuration = TimeSpan.FromHours(12);
 
         public async Task<double?> GetAvgTemperature(int days)
@@ -20,11 +19,11 @@ namespace HeatHarmony.Providers
                 return null;
             }
 
-            if (_cachedAvgTemp.HasValue && DateTime.Now - _cachedAt < CacheDuration)
+            if (_cache.TryGetValue(days, out var cached) && DateTime.Now - cached.cachedAt < CacheDuration)
             {
-                _logger.LogDebug("{ServiceName}:: Returning cached avg temperature {Temp:F1}°C (cached {Ago:F1}h ago)",
-                    _serviceName, _cachedAvgTemp.Value, (DateTime.Now - _cachedAt).TotalHours);
-                return _cachedAvgTemp;
+                _logger.LogDebug("{ServiceName}:: Returning cached avg temperature {Temp:F1}°C for {Days} days (cached {Ago:F1}h ago)",
+                    _serviceName, cached.value, days, (DateTime.Now - cached.cachedAt).TotalHours);
+                return cached.value;
             }
 
             var url = $"{GlobalConfig.RestlessFalconConfig?.Url}SensorData?id=5&ago={days}&amount=0";
@@ -36,18 +35,17 @@ namespace HeatHarmony.Providers
                 if (result.Count == 0)
                 {
                     _logger.LogWarning("{ServiceName}:: GetAvgTemperature received empty data for {Days} days", _serviceName, days);
-                    return _cachedAvgTemp;
+                    return _cache.TryGetValue(days, out var stale) ? stale.value : null;
                 }
                 var avgTemp = result.Average(r => r.temperature);
-                _cachedAvgTemp = avgTemp;
-                _cachedAt = DateTime.Now;
+                _cache[days] = (avgTemp, DateTime.Now);
                 _logger.LogInformation("{ServiceName}:: GetAvgTemperature calculated average temperature of {AvgTemp}°C from {Count} records for {Days} days", _serviceName, avgTemp, result.Count, days);
                 return avgTemp;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "{ServiceName}:: Exception occurred while fetching average temperature from Restless Falcon: {ErrorMessage}", _serviceName, ex.Message);
-                return _cachedAvgTemp;
+                return _cache.TryGetValue(days, out var stale) ? stale.value : null;
             }
         }
     }

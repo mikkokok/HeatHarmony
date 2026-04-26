@@ -170,8 +170,8 @@ namespace HeatHarmony.Workers
 
             double MaxGridImportKw = currentPrice switch 
             {
-                < 0 => 2.0,
-                _ => 1.0
+                < 0 => 1.0,
+                _ => 0.5
             };
 
             var exportKw = _mQClient.ActualReturndelivery;
