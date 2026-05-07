@@ -58,6 +58,11 @@ namespace HeatHarmony.Providers
 
         public async Task SetTargetTemperature(int temperature)
         {
+            if (MainTargetTemp == temperature)
+            {
+                _logger.LogInformation($"{_serviceName}:: SetTargetTemperature called but temperature is already {temperature}");
+                return;
+            }
             try
             {
                 var url = GlobalConfig.HeishaUrl + $"command?SetZ1HeatRequestTemperature={temperature}";

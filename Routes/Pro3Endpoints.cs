@@ -16,7 +16,7 @@ namespace HeatHarmony.Routes
                 return Results.Ok(provider.GetDeviceStatus());
             })
             .WithName("GetPro3Status")
-            .Produces<List<Pro3SetResponse>>(StatusCodes.Status200OK);
+            .Produces<List<Pro3StatusResponse>>(StatusCodes.Status200OK);
 
             pro3.MapPost("/override", ([FromServices] Pro3Provider provider, [FromQuery] int outputAmount, [FromQuery] bool output, [FromQuery] int durationMinutes) =>
             {

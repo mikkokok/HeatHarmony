@@ -14,7 +14,7 @@ namespace HeatHarmony.Providers
 
         public List<ElectricityPrice> TodayPrices { get; private set; } = [];
         public List<ElectricityPrice> TomorrowPrices { get; private set; } = [];
-        public List<LowPriceDateTimeRange> TodayLowPriceTimes { get; private set; } = []; 
+        public List<LowPriceDateTimeRange> TodayLowPriceTimes { get; private set; } = [];
         public List<LowPriceDateTimeRange> TomorrowLowPriceTimes { get; private set; } = [];
         public List<LowPriceDateTimeRange> AllLowPriceTimes { get; private set; } = [];
         public LowPriceDateTimeRange NightPeriodTimes { get; private set; } = new();
@@ -25,7 +25,7 @@ namespace HeatHarmony.Providers
 
         private record ParsedPrice(DateTime DateTime, decimal Price, ElectricityPrice Original);
         private record HourlyGroup(DateTime HourStart, List<ParsedPrice> Slots, decimal AveragePrice);
-        private double? _last2WeeksAvgTemp = null;
+        private double? _last2DaysAvgTemp = null;
 
         public PriceProvider(ILogger<PriceProvider> logger, IRequestProvider requestProvider, RestlessFalconProvider restlessFalconProvider)
         {
@@ -96,13 +96,13 @@ namespace HeatHarmony.Providers
                 TodayLowPriceTimes = CalculateLowPriceTimesWithRanks(TodayPrices);
                 TomorrowLowPriceTimes = CalculateLowPriceTimesWithRanks(TomorrowPrices);
                 AllLowPriceTimes = [.. TodayLowPriceTimes, .. TomorrowLowPriceTimes];
-                _last2WeeksAvgTemp = await _restlessFalcon.GetAvgTemperature(14);
+                _last2DaysAvgTemp = await _restlessFalcon.GetAvgTemperature(2);
                 NightPeriodTimes = GetBestNightPeriod();
                 DayPeriodTimes = GetBestDayPeriod();
             }
             catch (Exception ex)
             {
-                _logger.LogCritical(ex, $"{_serviceName}:: UpdatePriceLists failed");
+                _logger.LogCritical(ex, "{Service}:: UpdatePriceLists failed", _serviceName);
             }
         }
 
@@ -232,39 +232,16 @@ namespace HeatHarmony.Providers
             return periods;
         }
 
-        private (int min, int max) GetNightTargetHours()
+        private (int min, int max) GetTargetHours()
         {
-            var hours = _last2WeeksAvgTemp switch
+            var hours = _last2DaysAvgTemp switch
             {
-                null => (min: 7, max: 10),
-                < -10 => (min: 8, max: 10),
-                < 0 => (min: 7, max: 10),
-                < 5 => (min: 6, max: 9),
-                < 10 => (min: 5, max: 8),
-                < 15 => (min: 4, max: 6),
-                < 20 => (min: 3, max: 5),
-                _ => (min: 2, max: 4)
+                null or < 15 => (min: 8, max: 10),
+                < 20 => (min: 6, max: 8),
+                _ => (min: 4, max: 8)
             };
-            _logger.LogInformation("{service}:: Night target hours: {min}-{max}h (2-week avg: {temp}°C)",
-                _serviceName, hours.min, hours.max, _last2WeeksAvgTemp?.ToString("F1") ?? "N/A");
-            return hours;
-        }
-
-        private (int min, int max) GetDayTargetHours()
-        {
-            var hours = _last2WeeksAvgTemp switch
-            {
-                null => (min: 4, max: 6),
-                < -10 => (min: 4, max: 6),
-                < 0 => (min: 4, max: 6),
-                < 5 => (min: 4, max: 5),
-                < 10 => (min: 4, max: 5),
-                < 15 => (min: 3, max: 5),
-                < 20 => (min: 2, max: 3),
-                _ => (min: 2, max: 3)
-            };
-            _logger.LogInformation("{service}:: Day target hours: {min}-{max}h (2-week avg: {temp}°C)",
-                _serviceName, hours.min, hours.max, _last2WeeksAvgTemp?.ToString("F1") ?? "N/A");
+            _logger.LogInformation("{service}:: target hours: {min}-{max}h (2-day avg: {temp}°C)",
+                _serviceName, hours.min, hours.max, _last2DaysAvgTemp?.ToString("F1") ?? "N/A");
             return hours;
         }
 
@@ -272,7 +249,7 @@ namespace HeatHarmony.Providers
         {
             var nightWindowStart = DateTime.Today.AddHours(22);          // 22:00 today
             var nightWindowEnd = DateTime.Today.AddDays(1).AddHours(8); // 08:00 tomorrow
-            var (min, max) = GetNightTargetHours();
+            var (min, max) = GetTargetHours();
             return GetPeriod(nightWindowStart, nightWindowEnd, minTargetHours: min, maxTargetHours: max);
         }
 
@@ -289,7 +266,7 @@ namespace HeatHarmony.Providers
                 _logger.LogInformation("{service}:: Calculating day period for tomorrow ({date:yyyy-MM-dd})", _serviceName, baseDate);
             }
 
-            var (min, max) = GetDayTargetHours();
+            var (min, max) = GetTargetHours();
             return GetPeriod(dayWindowStart, dayWindowEnd, minTargetHours: min, maxTargetHours: max);
         }
 

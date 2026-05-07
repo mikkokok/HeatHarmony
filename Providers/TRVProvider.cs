@@ -11,7 +11,7 @@ namespace HeatHarmony.Providers
         private readonly IRequestProvider _requestProvider;
         private readonly RestlessFalconProvider _restlessFalconProvider;
         private readonly List<ShellyTRV> _devices = [];
-        private const double SummermodeThreshold = 5.0;
+        private const double SummermodeThreshold = 15.0;
         private const int SummerMaxLevel = 20;
 
         public Task TRVTask { get; private set; }

@@ -35,6 +35,11 @@ namespace HeatHarmony.Providers
 
         public async Task EnableWaterHeating()
         {
+            if (IsOn)
+            {
+                _logger.LogInformation("{service}:: EnableWaterHeating called but relay is already on", _serviceName);
+                return;
+            }
             try
             {
                 var url = GlobalConfig.Shelly3EMUrl + "relay/0?turn=on";
@@ -59,6 +64,11 @@ namespace HeatHarmony.Providers
 
         public async Task DisableWaterHeating()
         {
+            if (!IsOn) 
+            {
+                _logger.LogInformation("{service}:: DisableWaterHeating called but relay is already off", _serviceName);
+                return;
+            }
             try
             {
                 var url = GlobalConfig.Shelly3EMUrl + "relay/0?turn=off";
