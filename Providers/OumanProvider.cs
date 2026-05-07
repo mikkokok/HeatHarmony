@@ -91,7 +91,7 @@ namespace HeatHarmony.Providers
         {
             const double epsilon = 0.5; 
 
-            if (Math.Abs(LatestInsideTemp - newTemp) < epsilon)
+            if (Math.Abs(LatestInsideTempDemand - newTemp) < epsilon)
             {
                 _logger.LogInformation("{service}:: SetInsideTemp called but temp is already {temp}, skipping", _serviceName, newTemp);
                 return;
