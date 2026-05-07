@@ -1,4 +1,5 @@
-﻿using HeatHarmony.Models;
+﻿using HeatHarmony.Config;
+using HeatHarmony.Models;
 using HeatHarmony.Workers;
 
 namespace HeatHarmony.Providers
@@ -19,7 +20,7 @@ namespace HeatHarmony.Providers
         public bool IsWorkerRunning { get; set; }
         public Task? OumanAndHeishamonSyncTask { get; set; }
         public Task? SetUseWaterBasedOnPriceTask { get; set; }
-        public Task? SetInsideTempBasedOnPriceTask { get; set; }
+        public Task? SetInsideTempBasedOnPriceTask { get; set; } = null;
         public string HeatingPeriodSource = "None";
 
         public void OverRideTemp(int hours, double temp, int? quietMode, bool overRidePrevious, int delay = 0)
@@ -63,6 +64,9 @@ namespace HeatHarmony.Providers
                 }
 
                 await oumanProvider.SetInsideTemp(temp);
+                await Task.Delay(TimeSpan.FromSeconds(20), ct);
+                await oumanProvider.UpdateReadings();
+                await heishaMonProvider.SetTargetTemperature((int)Math.Round(oumanProvider.LatestFlowDemand) + GlobalConfig.HeatAutomationConfig.HeatAddition);
                 lock (_sync)
                 {
                     overRide = true;

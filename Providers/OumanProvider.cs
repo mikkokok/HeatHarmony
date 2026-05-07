@@ -36,17 +36,7 @@ namespace HeatHarmony.Providers
             {
                 try
                 {
-                    var url = GlobalConfig.OumanConfig!.Url + "request?S_275_85;S_227_85;S_54_85;S_81_85;S_59_85;S_284_85";
-                    var result = await _requestProvider.GetStringAsync(HttpClientConst.OumanClient, url);
-                    if (result != null)
-                    {
-                        var readings = result.Split("?")[1];
-                        SetLatest(readings);
-                    }
-                    else
-                    {
-                        _logger.LogWarning("{service}:: GetLatestReadings returned null", _serviceName);
-                    }
+                    await UpdateReadings();
                     await Task.Delay(TimeSpan.FromMinutes(5));
                 }
                 catch (Exception ex)
@@ -54,6 +44,28 @@ namespace HeatHarmony.Providers
                     _logger.LogError(ex, "{service}:: GetLatestReadings exception", _serviceName);
                     await Task.Delay(TimeSpan.FromMinutes(1));
                 }
+            }
+        }
+
+        public async Task UpdateReadings()
+        {
+            try
+            {
+                var url = GlobalConfig.OumanConfig!.Url + "request?S_275_85;S_227_85;S_54_85;S_81_85;S_59_85;S_284_85";
+                var result = await _requestProvider.GetStringAsync(HttpClientConst.OumanClient, url);
+                if (result != null)
+                {
+                    var readings = result.Split("?")[1];
+                    SetLatest(readings);
+                }
+                else
+                {
+                    _logger.LogWarning("{service}:: UpdateReadings returned null", _serviceName);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "{service}:: UpdateReadings exception", _serviceName);
             }
         }
 
@@ -79,7 +91,7 @@ namespace HeatHarmony.Providers
         {
             const double epsilon = 0.5; 
 
-            if (Math.Abs(LatestInsideTemp - newTemp) < epsilon)
+            if (Math.Abs(LatestInsideTempDemand - newTemp) < epsilon)
             {
                 _logger.LogInformation("{service}:: SetInsideTemp called but temp is already {temp}, skipping", _serviceName, newTemp);
                 return;

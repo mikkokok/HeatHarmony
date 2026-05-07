@@ -67,6 +67,12 @@ namespace HeatHarmony.Workers
 
                         await cycleCts.CancelAsync();
 
+                        if (_lockedHeatingPeriod != null)
+                        {
+                            _logger.LogInformation("{service}:: Clearing locked heating period due to cycle restart (cycle {cycleId})", _serviceName, cycleId);
+                            _lockedHeatingPeriod = null;
+                        }
+
                         if (finished.IsFaulted)
                         {
                             _logger.LogError(finished.Exception, "{service}:: A task faulted. Restarting all loops in 30s unless cancellation requested (cycle {cycleId})", _serviceName, cycleId);
@@ -219,8 +225,11 @@ namespace HeatHarmony.Workers
                             }
                             else
                             {
-
-                                if (!shouldEnable && !IsEmergencyHeatingNeeded())
+                                if (!hasRunEnough)
+                                {
+                                    _logger.LogInformation("{service}:: Water heating is running and has not run enough yet, letting it continue", _serviceName);
+                                }
+                                else if (!shouldEnable && !IsEmergencyHeatingNeeded())
                                 {
                                     _logger.LogInformation(
                                         "{service}:: Considering disable of water heating due to shouldEnable {shouldEnable} and not emergency heating and has run enough {hasRunEnough}",
@@ -521,21 +530,14 @@ namespace HeatHarmony.Workers
                 }
                 else if (outside <= -5 && outside > -20)
                 {
-                    switch (outside)
+                    var quietMode = outside switch
                     {
-                        case >= -5:
-                            await _heishaMonProvider.SetQuietMode(3);
-                            break;
-                        case > -15 and < -5:
-                            await _heishaMonProvider.SetQuietMode(2);
-                            break;
-                        case > -20 and <= -15:
-                            await _heishaMonProvider.SetQuietMode(1);
-                            break;
-                        default:
-                            await _heishaMonProvider.SetQuietMode(0);
-                            break;
-                    }
+                        > -10 => 2,   // -5 to -10: qm 2
+                        > -15 => 1,   // -10 to -15: qm 1
+                        _ => 0        // -15 to -20: qm 0
+                    };
+
+                    await _heishaMonProvider.SetQuietMode(quietMode);
                     _logger.LogInformation("{service}:: Winter branch -> evaluating price periods", _serviceName);
                     var currentPeriod = _priceProvider.AllLowPriceTimes.FirstOrDefault(p => TimeUtils.IsCurrentTimeInRange(p));
                     if (currentPeriod == null)
@@ -592,10 +594,12 @@ namespace HeatHarmony.Workers
             LowPriceDateTimeRange nightPeriod, double nightHours,
             LowPriceDateTimeRange dayPeriod, double dayHours)
         {
-            const decimal nightPreferenceTolerance = 0.01m;
+            int month = DateTime.Now.Month;
+            bool favourDay = month is >= 5 and <= 8;
+            const decimal priceTolerance = 0.02m;
 
-            var nightValid = nightHours > 0 && nightPeriod.AveragePrice > 0;
-            var dayValid = dayHours > 0 && dayPeriod.AveragePrice > 0;
+            var nightValid = nightHours > 0;
+            var dayValid = dayHours > 0;
 
             if (!dayValid)
                 return (nightPeriod, nightHours, "night");
@@ -603,15 +607,28 @@ namespace HeatHarmony.Workers
             if (!nightValid)
                 return (dayPeriod, dayHours, "day");
 
-            if (dayPeriod.AveragePrice < nightPeriod.AveragePrice - nightPreferenceTolerance)
+            if (favourDay)
             {
-                _logger.LogInformation(
-                    "{service}:: Day period ({dayAvg:F4}) is more than {tolerance} €/kWh cheaper than night ({nightAvg:F4}), preferring day",
-                    _serviceName, dayPeriod.AveragePrice, nightPreferenceTolerance, nightPeriod.AveragePrice);
+                if (nightPeriod.AveragePrice < dayPeriod.AveragePrice - priceTolerance)
+                {
+                    _logger.LogInformation(
+                        "{service}:: Summer: night ({nightAvg:F4}) is more than {tolerance} €/kWh cheaper than day ({dayAvg:F4}), preferring night",
+                        _serviceName, nightPeriod.AveragePrice, priceTolerance, dayPeriod.AveragePrice);
+                    return (nightPeriod, nightHours, "night");
+                }
                 return (dayPeriod, dayHours, "day");
             }
-
-            return (nightPeriod, nightHours, "night");
+            else
+            {
+                if (dayPeriod.AveragePrice < nightPeriod.AveragePrice - priceTolerance)
+                {
+                    _logger.LogInformation(
+                        "{service}:: Winter: day ({dayAvg:F4}) is more than {tolerance} €/kWh cheaper than night ({nightAvg:F4}), preferring day",
+                        _serviceName, dayPeriod.AveragePrice, priceTolerance, nightPeriod.AveragePrice);
+                    return (dayPeriod, dayHours, "day");
+                }
+                return (nightPeriod, nightHours, "night");
+            }
         }
 
         private bool IsEmergencyHeatingNeeded() => TimeUtils.HoursSince(_emProvider.LastEnabled) >= 48;
