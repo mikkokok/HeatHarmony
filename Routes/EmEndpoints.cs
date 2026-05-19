@@ -19,6 +19,7 @@ namespace HeatHarmony.Routes
                 var response = new EmLatestResponse
                 {
                     LastEnabled = emProvider.LastEnabled,
+                    LastDisabled = emProvider.LastDisabled,
                     IsOverridden = emProvider.IsOverridden,
                     IsRunning = isRunning,
                     IsOn = emProvider.IsOn

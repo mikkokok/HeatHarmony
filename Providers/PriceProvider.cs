@@ -222,7 +222,8 @@ namespace HeatHarmony.Providers
                         Start = start,
                         End = end,
                         AveragePrice = averagePrice,
-                        Rank = 0
+                        Rank = 0,
+                        IsDataValid = true
                     });
                 }
 
@@ -236,9 +237,10 @@ namespace HeatHarmony.Providers
         {
             var hours = _last2DaysAvgTemp switch
             {
-                null or < 15 => (min: 8, max: 10),
-                < 20 => (min: 6, max: 8),
-                _ => (min: 4, max: 8)
+                null or < 10 => (min: 8, max: 10),
+                < 15 => (min: 6, max: 10),
+                < 20 => (min: 4, max: 10),
+                _ => (min: 4, max: 10)
             };
             _logger.LogInformation("{service}:: target hours: {min}-{max}h (2-day avg: {temp}°C)",
                 _serviceName, hours.min, hours.max, _last2DaysAvgTemp?.ToString("F1") ?? "N/A");
@@ -278,7 +280,8 @@ namespace HeatHarmony.Providers
                 Start = windowStart,
                 End = windowStart.AddHours(Math.Min(maxTargetHours, windowHours)),
                 AveragePrice = 0,
-                Rank = 0
+                Rank = 0,
+                IsDataValid = false
             };
 
             bool spansMidnight = windowEnd.Date > windowStart.Date;
@@ -362,7 +365,8 @@ namespace HeatHarmony.Providers
                         Start = start,
                         End = end,
                         AveragePrice = avg,
-                        Rank = 0
+                        Rank = 0,
+                        IsDataValid = true
                     });
                 }
             }

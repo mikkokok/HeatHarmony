@@ -6,5 +6,6 @@
         public DateTime End { get; set; }
         public int Rank { get; set; }
         public decimal AveragePrice { get; set; }
+        public bool IsDataValid { get; set; }
     }
 }

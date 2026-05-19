@@ -16,11 +16,14 @@ namespace HeatHarmony.Workers
         private readonly EMProvider _emProvider;
         private readonly TRVProvider _tRVProvider;
         private readonly OilBurnerProvider _oilBurnerProvider;
+        private readonly RestlessFalconProvider _restlessFalconProvider;
         private readonly DateTime _startTime = DateTime.UtcNow;
         private LowPriceDateTimeRange? _lockedHeatingPeriod;
+        private string? _lockedHeatingPeriodSource;
 
         public HeatAutomationWorker(ILogger<HeatAutomationWorker> logger, HeishaMonProvider heishaMonProvider,
-            OumanProvider oumanProvider, HeatAutomationWorkerProvider heatAutomationWorkerProvider, PriceProvider priceProvider, EMProvider eMProvider, TRVProvider tRVProvider, OilBurnerProvider oilBurnerProvider)
+            OumanProvider oumanProvider, HeatAutomationWorkerProvider heatAutomationWorkerProvider, PriceProvider priceProvider, EMProvider eMProvider,
+            TRVProvider tRVProvider, OilBurnerProvider oilBurnerProvider, RestlessFalconProvider restlessFalconProvider)
         {
             _serviceName = nameof(HeatAutomationWorker);
             _logger = logger;
@@ -31,6 +34,7 @@ namespace HeatHarmony.Workers
             _emProvider = eMProvider;
             _tRVProvider = tRVProvider;
             _oilBurnerProvider = oilBurnerProvider;
+            _restlessFalconProvider = restlessFalconProvider;
             _logger.LogInformation("{service}:: Initialized successfully", _serviceName);
         }
 
@@ -71,6 +75,7 @@ namespace HeatHarmony.Workers
                         {
                             _logger.LogInformation("{service}:: Clearing locked heating period due to cycle restart (cycle {cycleId})", _serviceName, cycleId);
                             _lockedHeatingPeriod = null;
+                            _lockedHeatingPeriodSource = null;
                         }
 
                         if (finished.IsFaulted)
@@ -379,214 +384,43 @@ namespace HeatHarmony.Workers
                 return false;
             }
         }
-
         private async Task ControlInsideTemp()
         {
-            var bestPricePeriod = _priceProvider.AllLowPriceTimes.FirstOrDefault(tlp => tlp.Rank == 1 && TimeUtils.IsTimeToday(tlp.Start));
-            bool isRankDataValid = bestPricePeriod != null;
-            int mintemp = 20;
-            int midtemp = 40;
-            int maxtemp = 55;
-            var outside = _oumanProvider.LatestOutsideTemp;
-            var inside = _oumanProvider.LatestInsideTemp;
-            var nightPeriod = _priceProvider.NightPeriodTimes;
-            var dayPeriod = _priceProvider.DayPeriodTimes;
-            var nightHours = TimeUtils.GetHoursInRange(nightPeriod);
-            var dayHours = TimeUtils.GetHoursInRange(dayPeriod);
-            var (preferredPeriod, preferredHours, preferredSource) = GetPreferredHeatingPeriod(nightPeriod, nightHours, dayPeriod, dayHours);
+            var ctx = await BuildHeatingContext();
 
-            if (_lockedHeatingPeriod != null)
+            using (_logger.BeginScope(ctx.LogScope))
             {
-                if (TimeUtils.IsCurrentTimeInRange(_lockedHeatingPeriod))
+                if (ctx.IsOilburnerActive)
                 {
-                    _logger.LogDebug("{service}:: Using locked heating period {start:HH:mm}-{end:HH:mm}", _serviceName, _lockedHeatingPeriod.Start, _lockedHeatingPeriod.End);
-                }
-                else
-                {
-                    _logger.LogInformation("{service}:: Locked heating period {start:HH:mm}-{end:HH:mm} expired, releasing", _serviceName, _lockedHeatingPeriod.Start, _lockedHeatingPeriod.End);
-                    _lockedHeatingPeriod = null;
-                }
-            }
-
-            var heatingPeriod = _lockedHeatingPeriod ?? preferredPeriod;
-            var heatingPeriodHours = _lockedHeatingPeriod != null ? TimeUtils.GetHoursInRange(_lockedHeatingPeriod) : preferredHours;
-            var heatingPeriodSource = _lockedHeatingPeriod != null ? "locked" : preferredSource;
-            var bestHours = bestPricePeriod != null ? TimeUtils.GetHoursInRange(bestPricePeriod) : 0;
-            var isOilburnerActive = _oilBurnerProvider.IsEnabled;
-            _heatAutomationWorkerProvider.HeatingPeriodSource = heatingPeriodSource;
-
-            var scope = new
-            {
-                inside_validPriceData = isRankDataValid,
-                inside_bestPeriodRank = bestPricePeriod?.Rank,
-                inside_bestPeriodHours = bestHours,
-                inside_nightPeriodHours = nightHours,
-                inside_dayPeriodHours = dayHours,
-                inside_heatingPeriodSource = heatingPeriodSource,
-                inside_heatingPeriodHours = heatingPeriodHours,
-                inside_outsideTemp = outside,
-                inside_insideTemp = inside,
-                inside_oilBurnerActive = isOilburnerActive
-            };
-
-            using (_logger.BeginScope(scope))
-            {
-                if (isOilburnerActive)
-                {
-                    _logger.LogInformation("{service}:: Oil burner is active", _serviceName);
-                    await _oumanProvider.SetInsideTemp(21);
-                    await _oumanProvider.SetMinFlowTemp(30);
-                    await SetTRVAuto();
+                    await HandleOilBurner();
                     return;
                 }
 
-                if (!isRankDataValid)
+                if (!ctx.IsRankDataValid)
                 {
-                    await _heishaMonProvider.SetQuietMode(3);
-                    if (DateTime.Now.Hour is > 0 and < 6 && outside < 15 && outside > -5)
-                    {
-                        _logger.LogWarning("{service}:: No price data, early hours moderate outside -> opportunistic high flow", _serviceName);
-                        await SetOumanAutoAndMin(maxtemp);
-                        await SetTRVMaxHeating();
-
-                        return;
-                    }
-                    _logger.LogWarning("{service}:: No price data -> conservative heating", _serviceName);
-                    await _oumanProvider.SetConservativeHeating();
-                    await SetTRVAuto();
+                    await HandleNoPriceData(ctx);
                     return;
                 }
 
-                if (outside >= 10)
+                if (ctx.Outside >= 10)
                 {
-                    await _heishaMonProvider.SetQuietMode(3);
-                    if (TimeUtils.IsCurrentTimeInRange(heatingPeriod))
-                    {
-                        if (_lockedHeatingPeriod == null)
-                        {
-                            _lockedHeatingPeriod = heatingPeriod;
-                            _logger.LogInformation("{service}:: Locking {source} heating period {start:HH:mm}-{end:HH:mm}",
-                                _serviceName, heatingPeriodSource, heatingPeriod.Start, heatingPeriod.End);
-                        }
-                        _logger.LogInformation("{service}:: Summer + {source} heating window (hours={hours})", _serviceName, heatingPeriodSource, heatingPeriodHours);
-                        if (heatingPeriodHours > 8)
-                        {
-                            await SetOumanAutoAndMin(midtemp);
-                            await SetTRVAuto();
-                        }
-                        else
-                        {
-                            await SetOumanAutoAndMin(maxtemp);
-                            await SetTRVMaxHeating();
-                        }
-                    }
-                    else
-                    {
-                        _logger.LogInformation("{service}:: Summer outside heating window -> minimal flow", _serviceName);
-                        await SetOumanAutoAndMin(mintemp);
-                        await SetTRVAuto();
-                    }
+                    await HandleSummer(ctx);
                     return;
                 }
 
-                if (outside > -5)
+                if (ctx.Outside > -5)
                 {
-                    if (bestHours > 16 && TimeUtils.IsCurrentTimeInRange(bestPricePeriod))
-                    {
-                        _logger.LogInformation("{service}:: Shoulder long cheap window ({hours}h) -> mid flow", _serviceName, bestHours);
-                        await _oumanProvider.SetMinFlowTemp(30);
-                        await _oumanProvider.SetAutoDriveOn();
-                        await _oumanProvider.SetInsideTemp(22);
-                        await _heishaMonProvider.SetQuietMode(3);
-                    }
-                    else if (TimeUtils.IsCurrentTimeInRange(heatingPeriod))
-                    {
-                        if (_lockedHeatingPeriod == null)
-                        {
-                            _lockedHeatingPeriod = heatingPeriod;
-                            _logger.LogInformation("{service}:: Locking {source} heating period {start:HH:mm}-{end:HH:mm}",
-                                _serviceName, heatingPeriodSource, heatingPeriod.Start, heatingPeriod.End);
-                        }
-                        _logger.LogInformation("{service}:: Shoulder {source} heating window -> max flow", _serviceName, heatingPeriodSource);
-                        await SetOumanAutoAndMin(50);
-                        await SetTRVMaxHeating();
-                        if (outside > 0)
-                        {
-                            await _heishaMonProvider.SetQuietMode(2);
-                        }
-                        else
-                        {
-                            await _heishaMonProvider.SetQuietMode(1);
-                        }
-                    }
-                    else
-                    {
-                        _logger.LogInformation("{service}:: Shoulder outside cheap/night -> low flow", _serviceName);
-                        await SetOumanAutoAndMin(20);
-                        await SetTRVAuto();
-                        await _heishaMonProvider.SetQuietMode(3);
-                    }
+                    await HandleShoulder(ctx);
                     return;
                 }
-                else if (outside <= -5 && outside > -20)
+
+                if (ctx.Outside <= -5 && ctx.Outside > -20)
                 {
-                    var quietMode = outside switch
-                    {
-                        > -10 => 2,   // -5 to -10: qm 2
-                        > -15 => 1,   // -10 to -15: qm 1
-                        _ => 0        // -15 to -20: qm 0
-                    };
-
-                    await _heishaMonProvider.SetQuietMode(quietMode);
-                    _logger.LogInformation("{service}:: Winter branch -> evaluating price periods", _serviceName);
-                    var currentPeriod = _priceProvider.AllLowPriceTimes.FirstOrDefault(p => TimeUtils.IsCurrentTimeInRange(p));
-                    if (currentPeriod == null)
-                    {
-                        _logger.LogInformation("{service}:: Winter no current period -> default", _serviceName);
-                        await _oumanProvider.SetDefault();
-                        await SetTRVAuto();
-                        return;
-                    }
-
-                    var winterScope = new
-                    {
-                        winter_currentRank = currentPeriod.Rank,
-                        winter_currentAvgPrice = currentPeriod.AveragePrice
-                    };
-                    using (_logger.BeginScope(winterScope))
-                    {
-                        if (currentPeriod.AveragePrice > GlobalConfig.HeatAutomationConfig.ExpensivePriceThreshold)
-                        {
-                            _logger.LogInformation("{service}:: Winter expensive -> inside 19C", _serviceName);
-                            await SetOumanAutoAndInside(19);
-                            await SetTRVAuto();
-                            return;
-                        }
-                        if (currentPeriod.Rank == 1)
-                        {
-                            _logger.LogInformation("{service}:: Winter cheapest -> inside 22C + TRV max", _serviceName);
-                            await SetOumanAutoAndInside(22);
-                            await SetTRVMaxHeating();
-                            return;
-                        }
-                        if (currentPeriod.AveragePrice < GlobalConfig.HeatAutomationConfig.CheapPriceThreshold)
-                        {
-                            _logger.LogInformation("{service}:: Winter cheap -> inside 21C", _serviceName);
-                            await SetOumanAutoAndInside(21);
-                            await SetTRVAuto();
-                            return;
-                        }
-                        _logger.LogInformation("{service}:: Winter cheap rank {rank} -> inside 20C", _serviceName, currentPeriod.Rank);
-                        await SetOumanAutoAndInside(20);
-                        await SetTRVAuto();
-                        return;
-                    }
+                    await HandleWinter(ctx);
+                    return;
                 }
 
-                _logger.LogInformation("{service}:: Fallback conservative heating", _serviceName);
-                await _oumanProvider.SetConservativeHeating();
-                await SetTRVAuto();
-                await _heishaMonProvider.SetQuietMode(0);
+                await HandleFallback();
             }
         }
 
@@ -598,8 +432,15 @@ namespace HeatHarmony.Workers
             bool favourDay = month is >= 5 and <= 8;
             const decimal priceTolerance = 0.02m;
 
-            var nightValid = nightHours > 0;
-            var dayValid = dayHours > 0;
+            var nightValid = nightHours > 0 && nightPeriod.IsDataValid;
+            var dayValid = dayHours > 0 && dayPeriod.IsDataValid;
+
+            if (!dayValid && !nightValid)
+            {
+                _logger.LogWarning("{service}:: Neither day nor night period has valid price data; defaulting to night window",
+                    _serviceName);
+                return (nightPeriod, nightHours, "night");
+            }
 
             if (!dayValid)
                 return (nightPeriod, nightHours, "night");
@@ -631,7 +472,7 @@ namespace HeatHarmony.Workers
             }
         }
 
-        private bool IsEmergencyHeatingNeeded() => TimeUtils.HoursSince(_emProvider.LastEnabled) >= 48;
+        private bool IsEmergencyHeatingNeeded() => TimeUtils.HoursSince(_emProvider.LastEnabled) >= GlobalConfig.HeatAutomationConfig.EmergencyHeatingHours;
 
         private bool IsPriceDataStale()
         {
@@ -686,5 +527,311 @@ namespace HeatHarmony.Workers
             _logger.LogInformation("{service}:: Disabling water heating", _serviceName);
             await _emProvider.DisableWaterHeating();
         }
+
+        /// <summary>
+        /// Returns flow temperature setpoints based on the 2-day outside average.
+        /// The colder it is, the higher the targets — the heat pump needs hotter
+        /// water to deliver the same indoor comfort.
+        /// </summary>
+        /// <returns>
+        /// A tuple of three setpoints:
+        /// <list type="bullet">
+        /// <item>
+        ///   <term>midTemp</term>
+        ///   <description>
+        ///     Used in <see cref="HandleSummer"/> when the heating window is longer than 8h.
+        ///     Moderate flow is enough since heat can spread over more hours.
+        ///   </description>
+        /// </item>
+        /// <item>
+        ///   <term>maxTemp</term>
+        ///   <description>
+        ///     Used in <see cref="HandleSummer"/> when the heating window is 8h or shorter,
+        ///     and in <see cref="HandleNoPriceData"/> for the early-morning opportunistic
+        ///     high-flow fallback. Short windows / fallback scenarios need maximum push.
+        ///   </description>
+        /// </item>
+        /// <item>
+        ///   <term>maxHeatingPeriodTemp</term>
+        ///   <description>
+        ///     Used in <see cref="HandleShoulder"/> for the cheap heating window.
+        ///     Sits between midTemp and maxTemp — shoulder season needs sustained
+        ///     heating but not the absolute max used in tight summer windows.
+        ///   </description>
+        /// </item>
+        /// </list>
+        /// Adjust ranges in the <c>switch</c> below when re-tuning seasonal behaviour;
+        /// also re-check <c>MinTemp = 20</c> in <see cref="BuildHeatingContext"/> which
+        /// is not derived from this method.
+        /// </returns>
+        private async Task<(int midTemp, int maxTemp, int maxHeatingPeriodTemp)> HeatingPeriodTemperatureLevel()
+        {
+            var avgTemp = await _restlessFalconProvider.GetAvgTemperature(2);
+            if (!avgTemp.HasValue)
+                return (40, 55, 50);
+            return avgTemp.Value switch
+            {
+                >= 15 => (30, 45, 35),
+                >= 10 => (30, 50, 40),
+                >= 5 => (30, 55, 45),
+                _ => (30, 55, 50)
+            };
+        }
+
+        private void ReleaseLockedHeatingPeriodIfExpired()
+        {
+            if (_lockedHeatingPeriod == null)
+                return;
+
+            if (TimeUtils.IsCurrentTimeInRange(_lockedHeatingPeriod))
+            {
+                _logger.LogDebug("{service}:: Using locked heating period {start:HH:mm}-{end:HH:mm}",
+                    _serviceName, _lockedHeatingPeriod.Start, _lockedHeatingPeriod.End);
+                return;
+            }
+            _logger.LogInformation("{service}:: Locked heating period {start:HH:mm}-{end:HH:mm} expired, releasing",
+                _serviceName, _lockedHeatingPeriod.Start, _lockedHeatingPeriod.End);
+            _lockedHeatingPeriod = null;
+            _lockedHeatingPeriodSource = null;
+        }
+        private async Task<HeatingContext> BuildHeatingContext()
+        {
+            var bestPricePeriod = _priceProvider.AllLowPriceTimes.FirstOrDefault(tlp => tlp.Rank == 1 && TimeUtils.IsTimeToday(tlp.Start));
+            var isRankDataValid = bestPricePeriod != null;
+            var outside = _oumanProvider.LatestOutsideTemp;
+            var inside = _oumanProvider.LatestInsideTemp;
+            var nightPeriod = _priceProvider.NightPeriodTimes;
+            var dayPeriod = _priceProvider.DayPeriodTimes;
+            var nightHours = TimeUtils.GetHoursInRange(nightPeriod);
+            var dayHours = TimeUtils.GetHoursInRange(dayPeriod);
+            var (preferredPeriod, preferredHours, preferredSource) = GetPreferredHeatingPeriod(nightPeriod, nightHours, dayPeriod, dayHours);
+
+            var minTemp = 20;
+            var (midTemp, maxTemp, maxHeatingPeriodTemp) = await HeatingPeriodTemperatureLevel();
+
+            ReleaseLockedHeatingPeriodIfExpired();
+
+            var heatingPeriod = _lockedHeatingPeriod ?? preferredPeriod;
+            var heatingPeriodHours = _lockedHeatingPeriod != null ? TimeUtils.GetHoursInRange(_lockedHeatingPeriod) : preferredHours;
+            var heatingPeriodSource = _lockedHeatingPeriodSource ?? preferredSource;
+            var bestHours = bestPricePeriod != null ? TimeUtils.GetHoursInRange(bestPricePeriod) : 0;
+            var isOilburnerActive = _oilBurnerProvider.IsEnabled;
+
+            if (_lockedHeatingPeriod == null && !TimeUtils.IsCurrentTimeInRange(heatingPeriod))
+            {
+                var minutesUntilPeriod = (heatingPeriod.Start - DateTime.Now).TotalMinutes;
+                if (minutesUntilPeriod >= 0 && minutesUntilPeriod <= 90)
+                {
+                    _lockedHeatingPeriod = heatingPeriod;
+                    _lockedHeatingPeriodSource = $"locked-early-{preferredSource}";
+                    _logger.LogInformation("{service}:: Locking {source} heating period {start:HH:mm}-{end:HH:mm} (starts in {minutes:F0} min)",
+                        _serviceName, _lockedHeatingPeriodSource, heatingPeriod.Start, heatingPeriod.End, minutesUntilPeriod);
+                }
+            }
+
+            _heatAutomationWorkerProvider.HeatingPeriodSource = heatingPeriodSource;
+            _heatAutomationWorkerProvider.HeatingPeriodHours = preferredPeriod;
+            _heatAutomationWorkerProvider.SelectedTemps = (minTemp, midTemp, maxTemp, maxHeatingPeriodTemp);
+
+            var logScope = new
+            {
+                inside_validPriceData = isRankDataValid,
+                inside_bestPeriodRank = bestPricePeriod?.Rank,
+                inside_bestPeriodHours = bestHours,
+                inside_nightPeriodHours = nightHours,
+                inside_dayPeriodHours = dayHours,
+                inside_heatingPeriodSource = heatingPeriodSource,
+                inside_heatingPeriodHours = heatingPeriodHours,
+                inside_outsideTemp = outside,
+                inside_insideTemp = inside,
+                inside_oilBurnerActive = isOilburnerActive,
+            };
+
+            return new HeatingContext(
+                BestPricePeriod: bestPricePeriod,
+                IsRankDataValid: isRankDataValid,
+                BestHours: bestHours,
+                Outside: outside,
+                Inside: inside,
+                HeatingPeriod: heatingPeriod,
+                HeatingPeriodHours: heatingPeriodHours,
+                HeatingPeriodSource: heatingPeriodSource,
+                MinTemp: minTemp,
+                MidTemp: midTemp,
+                MaxTemp: maxTemp,
+                MaxHeatingPeriodTemp: maxHeatingPeriodTemp,
+                IsOilburnerActive: isOilburnerActive,
+                LogScope: logScope);
+        }
+
+        private void LockHeatingPeriodIfNeeded(HeatingContext ctx)
+        {
+            if (_lockedHeatingPeriod != null)
+                return;
+
+            _lockedHeatingPeriod = ctx.HeatingPeriod;
+            _lockedHeatingPeriodSource = $"locked-{ctx.HeatingPeriodSource}";
+            _logger.LogInformation("{service}:: Locking {source} heating period {start:HH:mm}-{end:HH:mm}",
+                _serviceName, _lockedHeatingPeriodSource, ctx.HeatingPeriod.Start, ctx.HeatingPeriod.End);
+        }
+
+        private async Task HandleOilBurner()
+        {
+            _logger.LogInformation("{service}:: Oil burner is active", _serviceName);
+            await _oumanProvider.SetInsideTemp(21);
+            await _oumanProvider.SetMinFlowTemp(30);
+            await SetTRVAuto();
+        }
+
+        private async Task HandleNoPriceData(HeatingContext ctx)
+        {
+            await _heishaMonProvider.SetQuietMode(3);
+
+            if (DateTime.Now.Hour is > 0 and < 6 && ctx.Outside < 15 && ctx.Outside > -5)
+            {
+                _logger.LogWarning("{service}:: No price data, early hours moderate outside -> opportunistic high flow", _serviceName);
+                await SetOumanAutoAndMin(ctx.MaxTemp);
+                await SetTRVMaxHeating();
+                return;
+            }
+
+            _logger.LogWarning("{service}:: No price data -> conservative heating", _serviceName);
+            await _heishaMonProvider.SetQuietMode(1);
+            await _oumanProvider.SetConservativeHeating();
+            await SetTRVAuto();
+        }
+        private async Task HandleSummer(HeatingContext ctx)
+        {
+            await _heishaMonProvider.SetQuietMode(3);
+
+            if (!TimeUtils.IsCurrentTimeInRange(ctx.HeatingPeriod))
+            {
+                _logger.LogInformation("{service}:: Summer outside heating window -> minimal flow", _serviceName);
+                await SetOumanAutoAndMin(ctx.MinTemp);
+                await SetTRVAuto();
+                return;
+            }
+
+            LockHeatingPeriodIfNeeded(ctx);
+            _logger.LogInformation("{service}:: Summer + {source} heating window (hours={hours})",
+                _serviceName, ctx.HeatingPeriodSource, ctx.HeatingPeriodHours);
+
+            if (ctx.HeatingPeriodHours > 8)
+            {
+                await SetOumanAutoAndMin(ctx.MidTemp);
+                await SetTRVAuto();
+            }
+            else
+            {
+                await SetOumanAutoAndMin(ctx.MaxTemp);
+                await SetTRVMaxHeating();
+            }
+        }
+
+        private async Task HandleShoulder(HeatingContext ctx)
+        {
+            if (ctx.BestHours > 16 && TimeUtils.IsCurrentTimeInRange(ctx.BestPricePeriod))
+            {
+                _logger.LogInformation("{service}:: Shoulder long cheap window ({hours}h) -> mid flow", _serviceName, ctx.BestHours);
+                await _oumanProvider.SetMinFlowTemp(30);
+                await _oumanProvider.SetAutoDriveOn();
+                await _oumanProvider.SetInsideTemp(22);
+                await _heishaMonProvider.SetQuietMode(3);
+                return;
+            }
+
+            if (TimeUtils.IsCurrentTimeInRange(ctx.HeatingPeriod))
+            {
+                LockHeatingPeriodIfNeeded(ctx);
+                _logger.LogInformation("{service}:: Shoulder {source} heating window -> max flow", _serviceName, ctx.HeatingPeriodSource);
+                await SetOumanAutoAndMin(ctx.MaxHeatingPeriodTemp);
+                await SetTRVMaxHeating();
+                await _heishaMonProvider.SetQuietMode(ctx.Outside > 0 ? 2 : 1);
+                return;
+            }
+
+            _logger.LogInformation("{service}:: Shoulder outside cheap/night -> low flow", _serviceName);
+            await SetOumanAutoAndMin(20);
+            await SetTRVAuto();
+            await _heishaMonProvider.SetQuietMode(3);
+        }
+        private async Task HandleWinter(HeatingContext ctx)
+        {
+            var quietMode = ctx.Outside switch
+            {
+                > -10 => 2,   // -5 to -10
+                > -15 => 1,   // -10 to -15
+                _ => 0        // -15 to -20
+            };
+            await _heishaMonProvider.SetQuietMode(quietMode);
+
+            _logger.LogInformation("{service}:: Winter branch -> evaluating price periods", _serviceName);
+
+            var currentPeriod = _priceProvider.AllLowPriceTimes.FirstOrDefault(p => TimeUtils.IsCurrentTimeInRange(p));
+            if (currentPeriod == null)
+            {
+                _logger.LogInformation("{service}:: Winter no current period -> default", _serviceName);
+                await _oumanProvider.SetDefault();
+                await SetTRVAuto();
+                return;
+            }
+
+            var winterScope = new
+            {
+                winter_currentRank = currentPeriod.Rank,
+                winter_currentAvgPrice = currentPeriod.AveragePrice
+            };
+            using (_logger.BeginScope(winterScope))
+            {
+                if (currentPeriod.AveragePrice > GlobalConfig.HeatAutomationConfig.ExpensivePriceThreshold)
+                {
+                    _logger.LogInformation("{service}:: Winter expensive -> inside 19C", _serviceName);
+                    await SetOumanAutoAndInside(19);
+                    await SetTRVAuto();
+                    return;
+                }
+                if (currentPeriod.Rank == 1)
+                {
+                    _logger.LogInformation("{service}:: Winter cheapest -> inside 22C + TRV max", _serviceName);
+                    await SetOumanAutoAndInside(22);
+                    await SetTRVMaxHeating();
+                    return;
+                }
+                if (currentPeriod.AveragePrice < GlobalConfig.HeatAutomationConfig.CheapPriceThreshold)
+                {
+                    _logger.LogInformation("{service}:: Winter cheap -> inside 21C", _serviceName);
+                    await SetOumanAutoAndInside(21);
+                    await SetTRVAuto();
+                    return;
+                }
+                _logger.LogInformation("{service}:: Winter cheap rank {rank} -> inside 20C", _serviceName, currentPeriod.Rank);
+                await SetOumanAutoAndInside(20);
+                await SetTRVAuto();
+            }
+        }
+
+        private async Task HandleFallback()
+        {
+            _logger.LogInformation("{service}:: Fallback conservative heating", _serviceName);
+            await _oumanProvider.SetConservativeHeating();
+            await SetTRVAuto();
+            await _heishaMonProvider.SetQuietMode(0);
+        }
+
+        private sealed record HeatingContext(
+            LowPriceDateTimeRange? BestPricePeriod,
+            bool IsRankDataValid,
+            double BestHours,
+            double Outside,
+            double Inside,
+            LowPriceDateTimeRange HeatingPeriod,
+            double HeatingPeriodHours,
+            string HeatingPeriodSource,
+            int MinTemp,
+            int MidTemp,
+            int MaxTemp,
+            int MaxHeatingPeriodTemp,
+            bool IsOilburnerActive,
+            object LogScope);
     }
 }
