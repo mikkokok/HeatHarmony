@@ -11,6 +11,7 @@ namespace HeatHarmony.Providers
         private readonly ILogger<EMProvider> _logger = logger;
         private readonly IRequestProvider _requestProvider = requestProvider;
         public DateTime LastEnabled { get; private set; } = DateTime.Now;
+        public DateTime LastDisabled { get; private set; } = DateTime.Now;
         public bool IsOn { get; private set; }
         public DateTime? OverrideUntil;
         private const int _maxOverrideHours = 48;
@@ -80,6 +81,7 @@ namespace HeatHarmony.Providers
                     _logger.LogWarning("{service}:: DisableWaterHeating did not turn off the relay", _serviceName);
                 }
                 OverrideUntil = null;
+                LastDisabled = DateTime.Now;
 
                 LogUtils.AddChangeRecord(Changes, Provider.EM, HarmonyChangeType.DisableWaterHeating, "Water heating disabled.");
             }

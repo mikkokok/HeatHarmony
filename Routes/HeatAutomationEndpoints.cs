@@ -128,6 +128,30 @@ namespace HeatHarmony.Routes
             })
             .WithName("GetHeatingPeriodSource")
             .Produces<string>(StatusCodes.Status200OK);
+            heat.MapGet("/heatperiodhours", ([FromServices] HeatAutomationWorkerProvider provider) =>
+            {
+                if (provider.HeatingPeriodHours is null)
+                    return Results.NoContent();
+                var response = new HeatingPeriodResponse
+                {
+                    Period = provider.HeatingPeriodHours,
+                };
+                return Results.Ok(response);
+            });
+            heat.MapGet("/selectedtemps", ([FromServices] HeatAutomationWorkerProvider provider) =>
+            {
+                var (minTemp, midTemp, maxTemp, maxHeatingPeriodTemp) = provider.SelectedTemps;
+                var response = new SelectedTempsResponse
+                {
+                    MinTemp = minTemp,
+                    MidTemp = midTemp,
+                    MaxTemp = maxTemp,
+                    MaxHeatingPeriodTemp = maxHeatingPeriodTemp
+                };
+                return Results.Ok(response);
+            })
+            .WithName("GetSelectedTemps")
+            .Produces<SelectedTempsResponse>(StatusCodes.Status200OK);
         }
     }
 }
