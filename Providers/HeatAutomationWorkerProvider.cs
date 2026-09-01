@@ -22,7 +22,7 @@ namespace HeatHarmony.Providers
         public Task? SetUseWaterBasedOnPriceTask { get; set; }
         public Task? SetInsideTempBasedOnPriceTask { get; set; } = null;
         public LowPriceDateTimeRange? HeatingPeriodHours { get; internal set; } = null;
-        public (int minTemp, int midTemp, int maxTemp, int maxHeatingPeriodTemp) SelectedTemps { get; internal set; }
+        public (int minTemp, int midTemp, int maxTemp) SelectedTemps { get; internal set; }
 
         public string HeatingPeriodSource = "None";
 

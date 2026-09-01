@@ -5,6 +5,7 @@ namespace HeatHarmony.Config
     public static class GlobalConfig
     {
         public static string? ApiKey { get; set; }
+        public static string? TrmnlApiKey { get; set; }
         public static string? HeishaUrl { get; set; }
         public static string? PricesUrl { get; set; }
         public static string? Shelly3EMUrl { get; set; }

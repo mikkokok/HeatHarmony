@@ -5,6 +5,5 @@
         public int MinTemp { get; set; }
         public int MidTemp { get; set; }
         public int MaxTemp { get; set; }
-        public int MaxHeatingPeriodTemp { get; set; }
     }
 }

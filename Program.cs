@@ -12,6 +12,7 @@ using Microsoft.OpenApi;
 var builder = WebApplication.CreateSlimBuilder(args);
 
 GlobalConfig.ApiKey = builder.Configuration["ApiKey"];
+GlobalConfig.TrmnlApiKey = builder.Configuration["TrmnlApiKey"];
 GlobalConfig.PricesUrl = builder.Configuration["PricesUrl"];
 GlobalConfig.HeishaUrl = builder.Configuration["HeishaUrl"];
 GlobalConfig.Shelly3EMUrl = builder.Configuration["Shelly3EMUrl"];

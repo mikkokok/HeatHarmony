@@ -140,13 +140,12 @@ namespace HeatHarmony.Routes
             });
             heat.MapGet("/selectedtemps", ([FromServices] HeatAutomationWorkerProvider provider) =>
             {
-                var (minTemp, midTemp, maxTemp, maxHeatingPeriodTemp) = provider.SelectedTemps;
+                var (minTemp, midTemp, maxTemp) = provider.SelectedTemps;
                 var response = new SelectedTempsResponse
                 {
                     MinTemp = minTemp,
                     MidTemp = midTemp,
-                    MaxTemp = maxTemp,
-                    MaxHeatingPeriodTemp = maxHeatingPeriodTemp
+                    MaxTemp = maxTemp
                 };
                 return Results.Ok(response);
             })

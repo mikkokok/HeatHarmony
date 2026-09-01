@@ -1,4 +1,5 @@
 ﻿
+
 using System.Globalization;
 using HeatHarmony.Config;
 using HeatHarmony.MQ;
@@ -165,10 +166,11 @@ namespace HeatHarmony.Workers
 
             if (IdealPricePerKwh < currentPrice)
             {
+                _logger.LogDebug("{service}:: Price {price:F4} €/kWh above ideal price {ideal:F4}, turning off output", _serviceName, currentPrice, IdealPricePerKwh);
                 return 0;
             }
 
-            double MaxGridImportKw = currentPrice switch 
+            double MaxGridImportKw = currentPrice switch
             {
                 < 0 => 1.0,
                 _ => 0.5
@@ -186,13 +188,12 @@ namespace HeatHarmony.Workers
 
             var realKwBalance = exportKw - importKw + currentPro3LoadKw;
             var surplusKw = Math.Max(realKwBalance, 0.0);
-
             var availableKw = surplusKw + MaxGridImportKw;
 
             _logger.LogDebug("{service}:: Price={price:F4}, pro3Load={pro3:F1}kW, realBalance={realBalance:F2}kW, import={import:F2}kW, surplusExport={export:F2}kW, available={available:F2}kW",
                 _serviceName, currentPrice, currentPro3LoadKw, realKwBalance, importKw, exportKw, availableKw);
 
-            if (availableKw >= Phase3PowerKw)
+            if (currentPrice < 0 && availableKw >= Phase3PowerKw)
             {
                 return 3;
             }
@@ -201,6 +202,7 @@ namespace HeatHarmony.Workers
             {
                 return 2;
             }
+
             return 0;
         }
 
