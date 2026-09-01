@@ -50,11 +50,11 @@ namespace HeatHarmony.Providers
                 if (!result.IsOn)
                 {
                     _logger.LogWarning("{service}:: EnableWaterHeating did not turn on the relay", _serviceName);
+                    return;
                 }
-                else
-                {
-                    LastEnabled = DateTime.Now;
-                }
+                OverrideUntil = null;
+                LastEnabled = DateTime.Now;
+
                 LogUtils.AddChangeRecord(Changes, Provider.EM, HarmonyChangeType.EnableWaterHeating, "Water heating enabled.");
             }
             catch (Exception ex)
@@ -65,7 +65,7 @@ namespace HeatHarmony.Providers
 
         public async Task DisableWaterHeating()
         {
-            if (!IsOn) 
+            if (!IsOn)
             {
                 _logger.LogInformation("{service}:: DisableWaterHeating called but relay is already off", _serviceName);
                 return;
@@ -79,6 +79,7 @@ namespace HeatHarmony.Providers
                 if (result.IsOn)
                 {
                     _logger.LogWarning("{service}:: DisableWaterHeating did not turn off the relay", _serviceName);
+                    return;
                 }
                 OverrideUntil = null;
                 LastDisabled = DateTime.Now;

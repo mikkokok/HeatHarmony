@@ -1,7 +1,7 @@
-﻿using HeatHarmony.Utils;
-using HeatHarmony.Providers;
-using HeatHarmony.Config;
+﻿using HeatHarmony.Config;
 using HeatHarmony.Models;
+using HeatHarmony.Providers;
+using HeatHarmony.Utils;
 
 namespace HeatHarmony.Workers
 {
@@ -20,6 +20,9 @@ namespace HeatHarmony.Workers
         private readonly DateTime _startTime = DateTime.UtcNow;
         private LowPriceDateTimeRange? _lockedHeatingPeriod;
         private string? _lockedHeatingPeriodSource;
+        private int? _lockedHeatingMinFlowTemp;
+        private const double _smallHeatingWindowHours = 6;
+        private const int _minSmallHeatingWindowFlowTemp = 40;
 
         public HeatAutomationWorker(ILogger<HeatAutomationWorker> logger, HeishaMonProvider heishaMonProvider,
             OumanProvider oumanProvider, HeatAutomationWorkerProvider heatAutomationWorkerProvider, PriceProvider priceProvider, EMProvider eMProvider,
@@ -71,11 +74,12 @@ namespace HeatHarmony.Workers
 
                         await cycleCts.CancelAsync();
 
-                        if (_lockedHeatingPeriod != null)
+                        if (_lockedHeatingPeriod != null || _lockedHeatingMinFlowTemp != null)
                         {
                             _logger.LogInformation("{service}:: Clearing locked heating period due to cycle restart (cycle {cycleId})", _serviceName, cycleId);
                             _lockedHeatingPeriod = null;
                             _lockedHeatingPeriodSource = null;
+                            _lockedHeatingMinFlowTemp = null;
                         }
 
                         if (finished.IsFaulted)
@@ -175,7 +179,7 @@ namespace HeatHarmony.Workers
                 bool isRunning = await _emProvider.IsRunning();
                 bool isOverridden = _emProvider.IsOverridden;
                 bool hasRunEnough = !isStale && _emProvider.HasRunEnough();
-                bool shouldEnable = !isStale && ShouldEnableWaterHeating();
+                bool shouldEnable = !isStale && ShouldEnableWaterHeating(isOn: _emProvider.IsOn, isRunning: isRunning);
                 var hoursRun = TimeUtils.HoursSince(_emProvider.LastEnabled);
                 var isOn = _emProvider.IsOn;
 
@@ -188,6 +192,8 @@ namespace HeatHarmony.Workers
                     water_isPriceStale = isStale,
                     water_hasRunEnough = hasRunEnough,
                     water_shouldEnable = shouldEnable,
+                    water_hoursRun = hoursRun,
+                    water_lastDisabled = _emProvider.LastDisabled,
                     water_isOn = isOn
                 };
 
@@ -234,7 +240,7 @@ namespace HeatHarmony.Workers
                                 {
                                     _logger.LogInformation("{service}:: Water heating is running and has not run enough yet, letting it continue", _serviceName);
                                 }
-                                else if (!shouldEnable && !IsEmergencyHeatingNeeded())
+                                else if (!shouldEnable && !IsEmergencyHeatingNeeded(isOn, isRunning))
                                 {
                                     _logger.LogInformation(
                                         "{service}:: Considering disable of water heating due to shouldEnable {shouldEnable} and not emergency heating and has run enough {hasRunEnough}",
@@ -311,7 +317,7 @@ namespace HeatHarmony.Workers
                         }
                         else
                         {
-                            _logger.LogWarning("{service}:: No valid price data for today, maintaining default inside temp of 20°C", _serviceName);
+                            _logger.LogWarning("{service}:: No valid price data for today, using conservative heating", _serviceName);
                             await _oumanProvider.SetConservativeHeating();
                         }
                     }
@@ -324,7 +330,7 @@ namespace HeatHarmony.Workers
             }
         }
 
-        private bool ShouldEnableWaterHeating()
+        private bool ShouldEnableWaterHeating(bool isOn, bool isRunning)
         {
             var todayPeriods = _priceProvider.AllLowPriceTimes;
             var bestPricePeriod = todayPeriods.FirstOrDefault(tlp => tlp.Rank == 1 && TimeUtils.IsTimeToday(tlp.Start));
@@ -338,7 +344,9 @@ namespace HeatHarmony.Workers
                 decision_bestPeriodStart = bestPricePeriod?.Start,
                 decision_validPriceData = isRankDataValid,
                 decision_hoursSinceLastRun = hoursSinceLast,
-                decision_currentPrice = currentPrice
+                decision_currentPrice = currentPrice,
+                decision_isOn = isOn,
+                decision_isRunning = isRunning
             };
 
             using (_logger.BeginScope(scope))
@@ -353,9 +361,9 @@ namespace HeatHarmony.Workers
 
                 if (!isRankDataValid)
                 {
-                    if (hoursSinceLast >= 24)
+                    if (TimeUtils.HoursSince(_emProvider.LastDisabled) >= 24)
                     {
-                        _logger.LogWarning("{service}:: No price data and >24h since last run. Midnight fallback check.", _serviceName);
+                        _logger.LogWarning("{service}:: No price data and >24h since last disable. Midnight fallback check.", _serviceName);
                         if (DateTime.Now.Hour == 0)
                             return true;
                     }
@@ -374,9 +382,9 @@ namespace HeatHarmony.Workers
                     return true;
                 }
 
-                if (IsEmergencyHeatingNeeded())
+                if (IsEmergencyHeatingNeeded(isOn, isRunning))
                 {
-                    _logger.LogWarning("{service}:: Emergency condition (>48h) -> enable", _serviceName);
+                    _logger.LogWarning("{service}:: Emergency condition (>48h while off) -> enable", _serviceName);
                     return true;
                 }
 
@@ -384,6 +392,7 @@ namespace HeatHarmony.Workers
                 return false;
             }
         }
+
         private async Task ControlInsideTemp()
         {
             var ctx = await BuildHeatingContext();
@@ -472,7 +481,15 @@ namespace HeatHarmony.Workers
             }
         }
 
-        private bool IsEmergencyHeatingNeeded() => TimeUtils.HoursSince(_emProvider.LastEnabled) >= GlobalConfig.HeatAutomationConfig.EmergencyHeatingHours;
+        private bool IsEmergencyHeatingNeeded(bool isOn, bool isRunning)
+        {
+            if (isOn || isRunning)
+            {
+                return false;
+            }
+
+            return TimeUtils.HoursSince(_emProvider.LastDisabled) >= GlobalConfig.HeatAutomationConfig.EmergencyHeatingHours;
+        }
 
         private bool IsPriceDataStale()
         {
@@ -534,7 +551,7 @@ namespace HeatHarmony.Workers
         /// water to deliver the same indoor comfort.
         /// </summary>
         /// <returns>
-        /// A tuple of three setpoints:
+        /// A tuple of two setpoints:
         /// <list type="bullet">
         /// <item>
         ///   <term>midTemp</term>
@@ -546,17 +563,8 @@ namespace HeatHarmony.Workers
         /// <item>
         ///   <term>maxTemp</term>
         ///   <description>
-        ///     Used in <see cref="HandleSummer"/> when the heating window is 8h or shorter,
-        ///     and in <see cref="HandleNoPriceData"/> for the early-morning opportunistic
-        ///     high-flow fallback. Short windows / fallback scenarios need maximum push.
-        ///   </description>
-        /// </item>
-        /// <item>
-        ///   <term>maxHeatingPeriodTemp</term>
-        ///   <description>
-        ///     Used in <see cref="HandleShoulder"/> for the cheap heating window.
-        ///     Sits between midTemp and maxTemp — shoulder season needs sustained
-        ///     heating but not the absolute max used in tight summer windows.
+        ///     Used during heating windows and in <see cref="HandleNoPriceData"/> for the
+        ///     early-morning opportunistic high-flow fallback.
         ///   </description>
         /// </item>
         /// </list>
@@ -564,18 +572,63 @@ namespace HeatHarmony.Workers
         /// also re-check <c>MinTemp = 20</c> in <see cref="BuildHeatingContext"/> which
         /// is not derived from this method.
         /// </returns>
-        private async Task<(int midTemp, int maxTemp, int maxHeatingPeriodTemp)> HeatingPeriodTemperatureLevel()
+        private async Task<(int midTemp, int maxTemp)> HeatingPeriodTemperatureLevel()
         {
             var avgTemp = await _restlessFalconProvider.GetAvgTemperature(2);
             if (!avgTemp.HasValue)
-                return (40, 55, 50);
+                return (40, 55);
             return avgTemp.Value switch
             {
-                >= 15 => (30, 45, 35),
-                >= 10 => (30, 50, 40),
-                >= 5 => (30, 55, 45),
-                _ => (30, 55, 50)
+                >= 15 => (30, 45),
+                >= 10 => (30, 50),
+                >= 5 => (30, 55),
+                _ => (30, 55)
             };
+        }
+
+        private int ApplySmallHeatingWindowMinimum(HeatingContext ctx, int targetTemp)
+        {
+            if (ctx.HeatingPeriodHours > _smallHeatingWindowHours || targetTemp >= _minSmallHeatingWindowFlowTemp)
+            {
+                return targetTemp;
+            }
+
+            _logger.LogInformation(
+                "{service}:: Raising heating window min flow from {old}C to {new}C because the window is short ({hours}h)",
+                _serviceName,
+                targetTemp,
+                _minSmallHeatingWindowFlowTemp,
+                ctx.HeatingPeriodHours);
+
+            return _minSmallHeatingWindowFlowTemp;
+        }
+
+        private int GetLockedHeatingWindowMinFlowTarget(HeatingContext ctx, int targetTemp, string reason)
+        {
+            var adjustedTarget = ApplySmallHeatingWindowMinimum(ctx, targetTemp);
+
+            if (_lockedHeatingPeriod == null || !TimeUtils.IsCurrentTimeInRange(ctx.HeatingPeriod))
+            {
+                return adjustedTarget;
+            }
+
+            if (_lockedHeatingMinFlowTemp.HasValue)
+            {
+                return _lockedHeatingMinFlowTemp.Value;
+            }
+
+            _lockedHeatingMinFlowTemp = adjustedTarget;
+
+            _logger.LogInformation(
+                "{service}:: Locking heating min flow to {temp}C for {source} period {start:HH:mm}-{end:HH:mm} ({reason})",
+                _serviceName,
+                _lockedHeatingMinFlowTemp.Value,
+                ctx.HeatingPeriodSource,
+                ctx.HeatingPeriod.Start,
+                ctx.HeatingPeriod.End,
+                reason);
+
+            return _lockedHeatingMinFlowTemp.Value;
         }
 
         private void ReleaseLockedHeatingPeriodIfExpired()
@@ -583,17 +636,20 @@ namespace HeatHarmony.Workers
             if (_lockedHeatingPeriod == null)
                 return;
 
-            if (TimeUtils.IsCurrentTimeInRange(_lockedHeatingPeriod))
+            if (DateTime.Now <= _lockedHeatingPeriod.End)
             {
-                _logger.LogDebug("{service}:: Using locked heating period {start:HH:mm}-{end:HH:mm}",
-                    _serviceName, _lockedHeatingPeriod.Start, _lockedHeatingPeriod.End);
+                _logger.LogDebug("{service}:: Using locked heating period {start:HH:mm}-{end:HH:mm} with locked min flow {temp}",
+                    _serviceName, _lockedHeatingPeriod.Start, _lockedHeatingPeriod.End, _lockedHeatingMinFlowTemp);
                 return;
             }
+
             _logger.LogInformation("{service}:: Locked heating period {start:HH:mm}-{end:HH:mm} expired, releasing",
                 _serviceName, _lockedHeatingPeriod.Start, _lockedHeatingPeriod.End);
             _lockedHeatingPeriod = null;
             _lockedHeatingPeriodSource = null;
+            _lockedHeatingMinFlowTemp = null;
         }
+
         private async Task<HeatingContext> BuildHeatingContext()
         {
             var bestPricePeriod = _priceProvider.AllLowPriceTimes.FirstOrDefault(tlp => tlp.Rank == 1 && TimeUtils.IsTimeToday(tlp.Start));
@@ -607,7 +663,7 @@ namespace HeatHarmony.Workers
             var (preferredPeriod, preferredHours, preferredSource) = GetPreferredHeatingPeriod(nightPeriod, nightHours, dayPeriod, dayHours);
 
             var minTemp = 20;
-            var (midTemp, maxTemp, maxHeatingPeriodTemp) = await HeatingPeriodTemperatureLevel();
+            var (midTemp, maxTemp) = await HeatingPeriodTemperatureLevel();
 
             ReleaseLockedHeatingPeriodIfExpired();
 
@@ -630,8 +686,8 @@ namespace HeatHarmony.Workers
             }
 
             _heatAutomationWorkerProvider.HeatingPeriodSource = heatingPeriodSource;
-            _heatAutomationWorkerProvider.HeatingPeriodHours = preferredPeriod;
-            _heatAutomationWorkerProvider.SelectedTemps = (minTemp, midTemp, maxTemp, maxHeatingPeriodTemp);
+            _heatAutomationWorkerProvider.HeatingPeriodHours = heatingPeriod;
+            _heatAutomationWorkerProvider.SelectedTemps = (minTemp, midTemp, maxTemp);
 
             var logScope = new
             {
@@ -645,6 +701,7 @@ namespace HeatHarmony.Workers
                 inside_outsideTemp = outside,
                 inside_insideTemp = inside,
                 inside_oilBurnerActive = isOilburnerActive,
+                inside_lockedHeatingMinFlowTemp = _lockedHeatingMinFlowTemp,
             };
 
             return new HeatingContext(
@@ -659,7 +716,6 @@ namespace HeatHarmony.Workers
                 MinTemp: minTemp,
                 MidTemp: midTemp,
                 MaxTemp: maxTemp,
-                MaxHeatingPeriodTemp: maxHeatingPeriodTemp,
                 IsOilburnerActive: isOilburnerActive,
                 LogScope: logScope);
         }
@@ -700,6 +756,7 @@ namespace HeatHarmony.Workers
             await _oumanProvider.SetConservativeHeating();
             await SetTRVAuto();
         }
+
         private async Task HandleSummer(HeatingContext ctx)
         {
             await _heishaMonProvider.SetQuietMode(3);
@@ -716,14 +773,18 @@ namespace HeatHarmony.Workers
             _logger.LogInformation("{service}:: Summer + {source} heating window (hours={hours})",
                 _serviceName, ctx.HeatingPeriodSource, ctx.HeatingPeriodHours);
 
+            var targetTemp = ctx.HeatingPeriodHours > 8
+                ? GetLockedHeatingWindowMinFlowTarget(ctx, ctx.MidTemp, "summer-spread-window")
+                : GetLockedHeatingWindowMinFlowTarget(ctx, ctx.MaxTemp, "summer-short-window");
+
+            await SetOumanAutoAndMin(targetTemp);
+
             if (ctx.HeatingPeriodHours > 8)
             {
-                await SetOumanAutoAndMin(ctx.MidTemp);
                 await SetTRVAuto();
             }
             else
             {
-                await SetOumanAutoAndMin(ctx.MaxTemp);
                 await SetTRVMaxHeating();
             }
         }
@@ -743,8 +804,11 @@ namespace HeatHarmony.Workers
             if (TimeUtils.IsCurrentTimeInRange(ctx.HeatingPeriod))
             {
                 LockHeatingPeriodIfNeeded(ctx);
-                _logger.LogInformation("{service}:: Shoulder {source} heating window -> max flow", _serviceName, ctx.HeatingPeriodSource);
-                await SetOumanAutoAndMin(ctx.MaxHeatingPeriodTemp);
+                _logger.LogInformation("{service}:: Shoulder {source} heating window -> high flow", _serviceName, ctx.HeatingPeriodSource);
+
+                var targetTemp = GetLockedHeatingWindowMinFlowTarget(ctx, ctx.MaxTemp, "shoulder-heating-window");
+
+                await SetOumanAutoAndMin(targetTemp);
                 await SetTRVMaxHeating();
                 await _heishaMonProvider.SetQuietMode(ctx.Outside > 0 ? 2 : 1);
                 return;
@@ -755,13 +819,14 @@ namespace HeatHarmony.Workers
             await SetTRVAuto();
             await _heishaMonProvider.SetQuietMode(3);
         }
+
         private async Task HandleWinter(HeatingContext ctx)
         {
             var quietMode = ctx.Outside switch
             {
-                > -10 => 2,   // -5 to -10
-                > -15 => 1,   // -10 to -15
-                _ => 0        // -15 to -20
+                > -10 => 2,
+                > -15 => 1,
+                _ => 0
             };
             await _heishaMonProvider.SetQuietMode(quietMode);
 
@@ -830,7 +895,6 @@ namespace HeatHarmony.Workers
             int MinTemp,
             int MidTemp,
             int MaxTemp,
-            int MaxHeatingPeriodTemp,
             bool IsOilburnerActive,
             object LogScope);
     }

@@ -26,13 +26,21 @@ namespace HeatHarmony.Routes.Middlewares
                 return;
             }
 
-            var configuration = context.RequestServices.GetRequiredService<IConfiguration>();
             var apiKey = GlobalConfig.ApiKey ?? throw new Exception("No ApiKey present in config");
+            var trmnlApiKey = GlobalConfig.TrmnlApiKey ?? throw new Exception("No TrmnlApiKey present in config");
+            var trmnlCheck = trmnlApiKey.Equals(extractedApiKey);
 
-            if (!apiKey.Equals(extractedApiKey))
+            if (!apiKey.Equals(extractedApiKey) && !trmnlCheck)
             {
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 await context.Response.WriteAsync("Unauthorized client.");
+                return;
+            }
+
+            if (trmnlCheck && context.Request.Method != "GET")
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                await context.Response.WriteAsync("TRMNL API Key is restricted to GET requests only.");
                 return;
             }
 
